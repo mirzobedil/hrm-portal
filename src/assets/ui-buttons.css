@@ -1,0 +1,147 @@
+/**
+ * Standart tugmalar: UiButton, UiIconButton
+ * Matnli tugmalar balandligi form maydonlari bilan bir xil: --ui-control-height (ui-fields.css)
+ */
+
+/* ── Matnli tugmalar ───────────────────────────────────────────────── */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: var(--ui-control-height, 32px);
+  font-family: inherit;
+  font-size: var(--ui-control-font-size, 13px);
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 7px;
+  border: none;
+  padding: 0 14px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
+}
+
+.ui-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-btn--primary {
+  background: #1a1a1a;
+  color: #fff;
+}
+.ui-btn--primary:hover:not(:disabled) {
+  background: #333;
+}
+
+.ui-btn--secondary {
+  background: #fff;
+  color: #1a1a1a;
+  border: var(--ui-control-border, 1px solid #e0e0e0);
+  padding: 0 16px;
+}
+.ui-btn--secondary:hover:not(:disabled) {
+  background: #fafafa;
+  border-color: #d4d4d4;
+}
+.ui-btn--secondary:active:not(:disabled) {
+  background: #f5f5f5;
+}
+
+.ui-btn--danger {
+  background: #fff;
+  color: #c53030;
+  border: 1px solid #f0a8a8;
+  padding: 0 16px;
+}
+.ui-btn--danger:hover:not(:disabled) {
+  background: #fff5f5;
+  border-color: #e88888;
+  color: #b91c1c;
+}
+.ui-btn--danger:active:not(:disabled) {
+  background: #feecec;
+}
+
+.ui-btn--reject {
+  background: none;
+  color: #e05a5a;
+  border: var(--ui-control-border, 1px solid #e0e0e0);
+  padding: 0 14px;
+}
+.ui-btn--reject:hover:not(:disabled) {
+  background: #fdf0f0;
+  border-color: #e05a5a;
+}
+
+.ui-btn--sm {
+  min-height: var(--ui-control-height, 32px);
+  padding: 0 12px;
+  font-size: 12px;
+  gap: 5px;
+}
+.ui-btn--sm.ui-btn--secondary,
+.ui-btn--sm.ui-btn--danger {
+  padding: 0 12px;
+}
+
+/* ── Faqat ikonka ──────────────────────────────────────────────────── */
+.ui-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #666;
+  padding: 5px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.ui-icon-btn:hover:not(:disabled) {
+  background: #ddd;
+  color: #333;
+}
+
+/* Modal yopish va ixcham panel */
+.ui-icon-btn--sm {
+  color: #999;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
+}
+.ui-icon-btn--sm:hover:not(:disabled) {
+  background: #f0f0f0;
+  color: #444;
+}
+
+/* Kalendar strelkalari (chegarali) */
+.ui-icon-btn--nav {
+  background: none;
+  border: 1px solid #e5e5e5;
+  border-radius: 5px;
+  padding: 4px 6px;
+  color: #888;
+  transition: background 0.12s, color 0.12s;
+}
+.ui-icon-btn--nav:hover:not(:disabled) {
+  background: #f5f5f5;
+  color: #444;
+}
+
+/* Gantt timeline strelkalari (ixcham) */
+.ui-icon-btn--tl {
+  background: none;
+  border: 1px solid #e5e5e5;
+  border-radius: 5px;
+  padding: 3px 5px;
+  color: #aaa;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.ui-icon-btn--tl:hover:not(:disabled) {
+  background: #f0f0f0;
+  color: #444;
+}

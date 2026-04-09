@@ -1,0 +1,72 @@
+/**
+ * Pill tablar: UiPillTabs + UiPillTab
+ * Aktiv: qora fon, oq matn; chetdagi: och kulrang fon, qora matn; counter — yengil kulrang.
+ */
+
+.ui-pill-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-pill-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 16px;
+  min-height: 32px;
+  box-sizing: border-box;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1.25;
+  color: #1a1a1a;
+  background: #ececec;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ui-pill-tab:hover:not(:disabled) {
+  background: #e3e3e3;
+}
+
+.ui-pill-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-pill-tab--active {
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.ui-pill-tab--active:hover:not(:disabled) {
+  background: #333;
+}
+
+/* Ikonka (masalan, Kоманда) */
+.ui-pill-tab__ic {
+  flex-shrink: 0;
+  opacity: 0.88;
+}
+
+.ui-pill-tab--active .ui-pill-tab__ic {
+  opacity: 1;
+  color: inherit;
+}
+
+/* Counter — matndan biroz yengil */
+.ui-pill-tab__count {
+  font-size: 12px;
+  font-weight: 500;
+  color: #888;
+  margin-left: 2px;
+}
+
+.ui-pill-tab--active .ui-pill-tab__count {
+  color: rgba(255, 255, 255, 0.78);
+}

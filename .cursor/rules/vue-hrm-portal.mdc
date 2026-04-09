@@ -1,0 +1,13 @@
+---
+description: HRM Portal — стек, алиасы и соглашения по коду
+alwaysApply: true
+---
+
+# Vue HRM Portal
+
+- **Stack:** Vue 3 + Vite + Vue Router; Pinia в `package.json`, но в `main.js` пока не подключён — не добавлять Pinia без явной задачи.
+- **Imports:** использовать алиас `@/` для `src/` (например `@/components/StatusBadge.vue`, `@/constants/vacation.js`).
+- **UI:** русские подписи в интерфейсе; роли `staff` | `manager` | `hr` | `admin` задаются в `App.vue`.
+- **Статусы заявок:** подписи и демо-команда руководителя — `src/constants/vacation.js`; бейджи — `StatusBadge.vue` (не дублировать длинные стили статусов в каждом view).
+- **Крупные файлы:** `views/Vacations.vue` монолитный — при изменениях трогать связанный участок или выносить в новые компоненты/composable, избегать несвязанных рефакторингов.
+- **Проверка после правок:** по возможности `npm run build`.

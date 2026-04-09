@@ -1,0 +1,352 @@
+/**
+ * Umumiy form kontrollari: input, select, textarea, qidiruv.
+ * Komponentlar: UiInput, UiTextField, UiSelect, UiDateRangeInput, UiTextarea, UiSearchField, UiField
+ *
+ * Barcha bir qatorli kontrollar va matnli tugmalar bir xil balandlik: --ui-control-height
+ */
+
+:root {
+  --ui-control-height: 32px;
+  --ui-control-radius: 8px;
+  --ui-control-font-size: 13px;
+  --ui-control-border: 1px solid #e0e0e0;
+}
+
+/* ── Base (oddiy input / textarea) ─────────────────────────────────── */
+.ui-field {
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: var(--ui-control-font-size);
+  line-height: 1.25;
+  color: #1a1a1a;
+  background: #fff;
+  border: var(--ui-control-border);
+  border-radius: var(--ui-control-radius);
+  padding: 0 12px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Bir qatorli maydonlar: bir xil balandlik (textarea bundan mustasno) */
+.ui-field:not(.ui-field--textarea) {
+  height: var(--ui-control-height);
+  line-height: calc(var(--ui-control-height) - 2px);
+}
+
+.ui-field::placeholder {
+  color: #a3a3a3;
+}
+
+.ui-field:focus {
+  border-color: #ccc;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+
+.ui-field--invalid {
+  border-color: #f0a8a8;
+}
+.ui-field--invalid:focus {
+  border-color: #e88888;
+  box-shadow: 0 0 0 3px rgba(240, 168, 168, 0.22);
+}
+
+/* Formada to‘liq kenglik (select / input) */
+.ui-field--full {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Label + maydon bloklari */
+.ui-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.ui-form-field__label {
+  font-size: 12px;
+  color: #888;
+  font-weight: 450;
+}
+.ui-form-field__hint {
+  font-size: 11px;
+  color: #aaa;
+  margin: 0;
+  line-height: 1.35;
+}
+.ui-form-field__error {
+  font-size: 12px;
+  color: #e05a5a;
+  margin: 0;
+  line-height: 1.35;
+}
+.ui-form-field--invalid .ui-form-field__label {
+  color: #c53030;
+}
+
+.ui-field--textarea {
+  resize: vertical;
+  height: auto;
+  min-height: 72px;
+  padding: 8px 12px;
+  line-height: 1.5;
+}
+
+/* ── Select: UiSelect / UiDropdownSelect (custom panel + trigger) ──── */
+.ui-field--select {
+  width: auto;
+  min-width: 160px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+  padding-right: 36px;
+}
+
+.ui-field--select:hover {
+  border-color: #d8d8d8;
+}
+
+/* Kalendar toolbar: torroq, binafsha focus */
+.ui-field--team-filter {
+  min-width: 120px;
+  height: var(--ui-control-height);
+  padding: 0 28px 0 10px;
+  font-size: var(--ui-control-font-size);
+  font-weight: 500;
+  color: #333;
+  line-height: calc(var(--ui-control-height) - 2px);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 8px center;
+  background-size: 12px;
+}
+
+.ui-field--team-filter:focus {
+  border-color: #7c5cc4;
+  box-shadow: 0 0 0 3px rgba(124, 92, 196, 0.12);
+}
+
+.ui-field--toolbar {
+  border: var(--ui-control-border);
+  border-radius: var(--ui-control-radius);
+  height: var(--ui-control-height);
+  padding: 0 28px 0 8px;
+  font-size: var(--ui-control-font-size);
+  font-weight: 500;
+  line-height: calc(var(--ui-control-height) - 2px);
+  flex: 1;
+  min-width: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 8px center;
+}
+
+.ui-field--toolbar:focus {
+  border-color: #7c5cc4;
+  box-shadow: 0 0 0 3px rgba(124, 92, 196, 0.12);
+}
+
+/* Kalendar yon panelidagi katta select (team-cal-select) */
+.ui-field--calendar-wide {
+  min-width: 200px;
+  max-width: 280px;
+  cursor: pointer;
+}
+
+/* ── Qidiruv: bitta ramka (ichki input ramkasiz) ───────────────────── */
+.ui-search-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--ui-control-height);
+  height: var(--ui-control-height);
+  padding: 0 12px;
+  border: 1px solid #e8e8e8;
+  border-radius: var(--ui-control-radius);
+  background: #fafafa;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+  min-width: 0;
+}
+
+.ui-search-field:focus-within {
+  border-color: #ccc;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+
+.ui-search-field--dense {
+  gap: 8px;
+  padding: 0 10px;
+  min-height: var(--ui-control-height);
+  height: var(--ui-control-height);
+  background: #fff;
+}
+
+.ui-search-field__ic {
+  color: #aaa;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.ui-search-field--dense .ui-search-field__ic {
+  color: #bbb;
+}
+
+.ui-search-field__input {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--ui-control-font-size);
+  line-height: 1.25;
+  color: #1a1a1a;
+  outline: none;
+  box-shadow: none;
+}
+
+.ui-search-field--dense .ui-search-field__input {
+  font-size: var(--ui-control-font-size);
+  color: #333;
+}
+
+.ui-search-field__input::placeholder {
+  color: #a3a3a3;
+}
+
+.ui-search-field--dense .ui-search-field__input::placeholder {
+  color: #bbb;
+}
+
+.ui-search-field__input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* ── Sana oralig‘i: UiDateRangeInput (@vuepic/vue-datepicker) ─────────
+   Trigger boshqa .ui-field bilan bir xil; panel — alohida (teleport). */
+
+.ui-daterange {
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ui-daterange--full {
+  width: 100%;
+}
+
+/* Select (`.ui-field--select`) bilan bir xil pastga qaragan strelka — o‘ng tomonda */
+.ui-daterange .dp__input_wrap {
+  position: relative;
+}
+
+.ui-daterange .dp__input_wrap::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  inset-inline-end: 10px;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 16px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Tozalash tugmasi chiqganda strelkani chapga siljitamiz */
+.ui-daterange .dp__input_wrap:has(.dp--clear-btn)::after {
+  inset-inline-end: 34px;
+}
+
+/* Eslatma: kutubxonada ikonka chapda (inset-inline-start), matn uchun
+   padding-inline-start kerak — `padding` shorthand bitta yozuvda barcha
+   tomonga ta’sir qilib, `.dp__input_icon_pad` dagi chap paddingni yo‘qotmasligi kerak. */
+.dp__input_wrap .dp__input.ui-field {
+  height: var(--ui-control-height);
+  min-height: var(--ui-control-height);
+  line-height: calc(var(--ui-control-height) - 2px);
+  padding-block: 0;
+  padding-inline-start: var(--dp-input-icon-padding, 40px);
+  /* o‘ngda strelka (select bilan bir xil ~36px); qiymat + clear bo‘lsa qo‘shimcha */
+  padding-inline-end: 36px;
+  font-weight: 500;
+  color: #1a1a1a;
+  border: var(--ui-control-border);
+  border-radius: var(--ui-control-radius);
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ui-daterange .dp__input_wrap:has(.dp--clear-btn) .dp__input.ui-field {
+  padding-inline-end: 58px;
+}
+
+.dp__input_wrap .dp__input.ui-field:hover:not(.dp__input_focus) {
+  border-color: #d8d8d8;
+}
+
+.dp__input_wrap .dp__input.ui-field:focus,
+.dp__input_wrap .dp__input.ui-field.dp__input_focus {
+  border-color: #ccc;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+  outline: none;
+}
+
+.dp__input_wrap .dp__input.ui-field::placeholder {
+  color: #a3a3a3;
+  opacity: 1;
+}
+
+.dp__input_wrap .dp__input.ui-field.dp__input_invalid {
+  border-color: #f0a8a8;
+}
+
+.dp__input_wrap .dp__input.ui-field.dp__input_invalid.dp__input_focus,
+.dp__input_wrap .dp__input.ui-field.dp__input_invalid:focus {
+  border-color: #e88888;
+  box-shadow: 0 0 0 3px rgba(240, 168, 168, 0.22);
+}
+
+.dp__input_wrap .dp__input.ui-field.dp__disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #fafafa;
+}
+
+/* Ochiq kalendar (body ga teleport) — chevaralar va tanlov rangi */
+.dp__menu.ui-daterange-menu {
+  --dp-border-color: #e0e0e0;
+  --dp-border-color-hover: #d8d8d8;
+  --dp-border-color-focus: #ccc;
+  --dp-primary-color: #333333;
+  --dp-background-color: #ffffff;
+  --dp-text-color: #1a1a1a;
+  --dp-border-radius: 8px;
+  --dp-font-size: var(--ui-control-font-size, 13px);
+  --dp-secondary-color: #ececec;
+  border-radius: var(--ui-control-radius);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.1);
+}
+
+.dp__menu.ui-daterange-menu .dp__menu_inner {
+  min-width: min(100vw - 24px, 560px);
+}

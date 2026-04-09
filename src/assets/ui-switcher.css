@@ -1,0 +1,92 @@
+/**
+ * Segment switcher: UiSwitcher + UiSwitcherTab
+ * variant="text" — matn, kengaytiriladi; variant="icon" — faqat ikonka, ixcham.
+ */
+
+.ui-switcher {
+  display: flex;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+/* Matnli segment (kalendar: Отделение / Команда) */
+.ui-switcher--text {
+  width: 100%;
+  gap: 0;
+  padding: 2px;
+  min-height: 32px;
+  align-items: stretch;
+  background: #ececec;
+  border-radius: 10px;
+}
+
+.ui-switcher--text .ui-switcher__btn {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  min-height: 28px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #666;
+  border-radius: 8px;
+}
+
+.ui-switcher--text .ui-switcher__btn:hover:not(.ui-switcher__btn--active) {
+  color: #444;
+}
+
+.ui-switcher--text .ui-switcher__btn--active {
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Faqat ikonka (diagramma / jadval) */
+.ui-switcher--icon {
+  gap: 2px;
+  padding: 2px;
+  min-height: 32px;
+  align-items: center;
+  background: #efefef;
+  border-radius: 7px;
+}
+
+.ui-switcher--icon .ui-switcher__btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  flex: none;
+  color: #999;
+  border-radius: 5px;
+}
+
+.ui-switcher--icon .ui-switcher__btn:hover:not(.ui-switcher__btn--active) {
+  color: #555;
+}
+
+.ui-switcher--icon .ui-switcher__btn--active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Umumiy tugma */
+.ui-switcher__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  line-height: 1.2;
+  color: inherit;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.ui-switcher__btn--active {
+  background: #fff;
+  color: #1a1a1a;
+}
+
+.ui-switcher__btn:focus-visible {
+  outline: 2px solid #7c5cc4;
+  outline-offset: 1px;
+}
