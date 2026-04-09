@@ -1,12 +1,15 @@
 <script setup>
 import { ref, computed, watch, inject } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, Info } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Info, X, Check, Plus, RotateCcw } from 'lucide-vue-next'
 import { UiButton, UiIconButton } from '@/components/ui'
 import { STATUS_LABELS as statusLabel, VACATION_PLANNING_BLOCKING_STATUSES } from '@/constants/vacation'
 import { EMPLOYEE_DATA } from '@/data/vacationRequests'
 import { useVacationRequests } from '@/composables/useVacationRequests'
 import { vacationPlanFlash } from '@/composables/useVacationPlanFlash'
+
+const FIRST_SEGMENT_MIN_DAYS = 14
+const SEGMENT_COLORS = ['#5b8ef0', '#7c5cc4', '#e8a020', '#4caf7d', '#e05a5a', '#2e9dc8']
 
 const router = useRouter()
 const sessionUser = inject('sessionUser')
@@ -19,41 +22,31 @@ const balance = computed(() => {
   return b ? { total: b.total, used: b.used } : { total: 28, used: 0 }
 })
 
-/** Черновик ежегодного плана (planned) — только для подписи в интерфейсе */
-const draftAnnualPlannedDays = computed(() =>
-  allRequests.value
-    .filter(r => r.employee === currentUser.value.name && r.status === 'planned' && r.type === 'Ежегодный')
-    .reduce((sum, r) => sum + r.days, 0),
-)
-
-/**
- * Годовой план задаётся один раз на положенные дни ежегодного отпуска (не «остаток»).
- */
-const planningDays = computed(() => Math.max(0, balance.value.total))
+const totalAnnualDays = computed(() => Math.max(0, balance.value.total))
 
 const calYear = ref(new Date().getFullYear())
-
 const yearStart = computed(() => `${calYear.value}-01-01`)
 const yearEnd = computed(() => `${calYear.value}-12-31`)
 
-/** Заявки, которые реально блокируют выбор периода (не planned / не rejected) */
 const overlapBlocks = computed(() =>
   allRequests.value.filter(
     r =>
       r.employee === currentUser.value.name &&
       VACATION_PLANNING_BLOCKING_STATUSES.includes(r.status) &&
       r.from <= yearEnd.value &&
-      r.to >= yearStart.value,
+      r.to >= yearStart.value &&
+      !(r.status === 'planned' && r.type === 'Ежегодный' && r.from.slice(0, 4) === String(calYear.value)),
   ),
 )
 
-const myBlocks = computed(() =>
+const myBlocksForMark = computed(() =>
   allRequests.value.filter(
     r =>
       r.employee === currentUser.value.name &&
       r.status !== 'rejected' &&
       r.from <= yearEnd.value &&
-      r.to >= yearStart.value,
+      r.to >= yearStart.value &&
+      !(r.status === 'planned' && r.type === 'Ежегодный' && r.from.slice(0, 4) === String(calYear.value)),
   ),
 )
 
@@ -77,100 +70,166 @@ const yearMonths = computed(() =>
   }),
 )
 
-function prevYear() {
-  calYear.value--
-}
-function nextYear() {
-  calYear.value++
-}
+function prevYear() { calYear.value-- }
+function nextYear() { calYear.value++ }
 
 function fmtDate(iso) {
   const [y, m, d] = iso.split('-')
   return `${d}.${m}.${y}`
 }
-
-function hasOverlap(a1, a2, b1, b2) {
-  return a1 <= b2 && a2 >= b1
+function fmtDateShort(iso) {
+  const [, m, d] = iso.split('-')
+  return `${d}.${m}`
 }
-
-function addCalendarDays(iso, delta) {
-  const [y, m, d] = iso.split('-').map(Number)
-  const dt = new Date(y, m - 1, d + delta)
-  const pad = n => String(n).padStart(2, '0')
-  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`
+function hasOverlap(a1, a2, b1, b2) { return a1 <= b2 && a2 >= b1 }
+function inclusiveCalendarDays(fromIso, toIso) {
+  const t0 = new Date(fromIso)
+  const t1 = new Date(toIso)
+  return Math.round((t1 - t0) / 86400000) + 1
 }
-
 function isWeekend(dateStr) {
   if (!dateStr) return false
   const day = new Date(dateStr).getDay()
   return day === 0 || day === 6
 }
 
+// ── Segments (draft) ──────────────────────────────────────────────────────
+const segments = ref([])
+const rangeAnchor = ref(null)
+const hoverCell = ref(null)
+const saveError = ref('')
+
+function syncSegmentsFromStore() {
+  const y = String(calYear.value)
+  segments.value = allRequests.value
+    .filter(r => r.employee === currentUser.value.name && r.type === 'Ежегодный' && r.status === 'planned' && r.from.startsWith(y))
+    .sort((a, b) => a.from.localeCompare(b.from))
+    .map(r => ({ from: r.from, to: r.to, days: r.days }))
+}
+
+watch(calYear, () => { syncSegmentsFromStore(); rangeAnchor.value = null; hoverCell.value = null; saveError.value = '' }, { immediate: true })
+
+const allocatedDays = computed(() => segments.value.reduce((s, seg) => s + seg.days, 0))
+const remainingDays = computed(() => Math.max(0, totalAnnualDays.value - allocatedDays.value))
+const hasLongSegment = computed(() => segments.value.some(s => s.days >= FIRST_SEGMENT_MIN_DAYS))
+
+function segColor(i) { return SEGMENT_COLORS[i % SEGMENT_COLORS.length] }
+
+function segmentBlockList() { return segments.value.map(s => ({ from: s.from, to: s.to })) }
+function rangeOverlapsAnyBlock(from, to, blocks) { return blocks.some(b => hasOverlap(from, to, b.from, b.to)) }
+
+function isCellOccupiedByBlocks(cell) {
+  return overlapBlocks.value.some(b => cell >= b.from && cell <= b.to) ||
+    segments.value.some(s => cell >= s.from && cell <= s.to)
+}
+
+function canAddInclusiveRange(from, to) {
+  if (from > to || from < yearStart.value || to > yearEnd.value) return false
+  const d = inclusiveCalendarDays(from, to)
+  if (d < 1 || d > remainingDays.value) return false
+  if (!hasLongSegment.value && d < FIRST_SEGMENT_MIN_DAYS) return false
+  return !rangeOverlapsAnyBlock(from, to, [...overlapBlocks.value, ...segmentBlockList()])
+}
+
+/** Preview range while hovering (anchor already set). */
+const previewRange = computed(() => {
+  if (!rangeAnchor.value || !hoverCell.value) return null
+  const a = rangeAnchor.value
+  const b = hoverCell.value
+  const from = a <= b ? a : b
+  const to = a <= b ? b : a
+  if (from < yearStart.value || to > yearEnd.value) return null
+  const d = inclusiveCalendarDays(from, to)
+  const valid = canAddInclusiveRange(from, to)
+  return { from, to, days: d, valid }
+})
+
+function onCellClick(cell) {
+  saveError.value = ''
+  if (!cell || totalAnnualDays.value < FIRST_SEGMENT_MIN_DAYS) return
+
+  if (!rangeAnchor.value) {
+    if (isCellOccupiedByBlocks(cell)) return
+    rangeAnchor.value = cell
+    return
+  }
+
+  const from = rangeAnchor.value <= cell ? rangeAnchor.value : cell
+  const to = rangeAnchor.value <= cell ? cell : rangeAnchor.value
+  rangeAnchor.value = null
+  hoverCell.value = null
+
+  if (!canAddInclusiveRange(from, to)) {
+    const d = inclusiveCalendarDays(from, to)
+    const blocking = [...overlapBlocks.value, ...segmentBlockList()]
+    if (rangeOverlapsAnyBlock(from, to, blocking)) saveError.value = 'Период пересекается с другой частью или заявкой.'
+    else if (d > remainingDays.value) saveError.value = `Не хватает дней (осталось ${remainingDays.value}).`
+    else if (!hasLongSegment.value && d < FIRST_SEGMENT_MIN_DAYS) saveError.value = `Одна из частей должна быть не менее ${FIRST_SEGMENT_MIN_DAYS} дней.`
+    else saveError.value = 'Нельзя добавить такой период.'
+    return
+  }
+  segments.value = [...segments.value, { from, to, days: inclusiveCalendarDays(from, to) }]
+}
+
+function onCellHover(cell) { hoverCell.value = cell }
+function onCalendarLeave() { hoverCell.value = null }
+
+function removeSegment(index) { segments.value = segments.value.filter((_, i) => i !== index); rangeAnchor.value = null; saveError.value = '' }
+function cancelAnchor() { rangeAnchor.value = null; hoverCell.value = null; saveError.value = '' }
+function resetDraft() { segments.value = []; rangeAnchor.value = null; hoverCell.value = null; saveError.value = '' }
+
 function getPageDayMark(dateStr) {
   if (!dateStr) return null
-  for (const r of myBlocks.value) {
+  for (const r of myBlocksForMark.value) {
     if (dateStr >= r.from && dateStr <= r.to) return r.status
   }
   return null
 }
 
-/** n ketma-ket kalendar kuni: start dan boshlab overlap yo‘qmi */
-function canStartRangeAt(startIso, n) {
-  if (n < 1) return false
-  const endIso = addCalendarDays(startIso, n - 1)
-  if (endIso > yearEnd.value || startIso < yearStart.value) return false
-  return !overlapBlocks.value.some(b => hasOverlap(startIso, endIso, b.from, b.to))
-}
-
-const selectedRange = ref(null)
-
-watch(calYear, () => {
-  selectedRange.value = null
-})
-
-function isInSelectedRange(iso) {
-  if (!selectedRange.value || !iso) return false
-  return iso >= selectedRange.value.from && iso <= selectedRange.value.to
-}
-
-function onCellClick(cell) {
-  if (!cell || planningDays.value < 1) return
-  if (!canStartRangeAt(cell, planningDays.value)) return
-  const n = planningDays.value
-  selectedRange.value = {
-    from: cell,
-    to: addCalendarDays(cell, n - 1),
-  }
-}
-
-function clearSelection() {
-  selectedRange.value = null
+function segmentIndexForCell(cell) {
+  if (!cell) return -1
+  return segments.value.findIndex(s => cell >= s.from && cell <= s.to)
 }
 
 function cellClasses(cell) {
   if (!cell) return []
-  const n = planningDays.value
-  const inRange = !!(selectedRange.value && isInSelectedRange(cell))
-  const canStart = n >= 1 && canStartRangeAt(cell, n)
   const list = []
-  if (inRange) list.push('vsp-cell--picked')
-  if (!canStart || n < 1) list.push('vsp-cell--disabled')
-  else list.push('vsp-cell--go')
+  const segIdx = segmentIndexForCell(cell)
+  const inSeg = segIdx >= 0
+
+  if (inSeg) list.push('vsp-cell--seg')
+  if (rangeAnchor.value === cell) list.push('vsp-cell--anchor')
   if (isWeekend(cell)) list.push('vsp-cell--weekend')
-  const mk = getPageDayMark(cell)
-  if (mk && !inRange) list.push('vsp-mark', `mark-${mk}`)
+
+  const pr = previewRange.value
+  if (pr && cell >= pr.from && cell <= pr.to && !inSeg) {
+    list.push(pr.valid ? 'vsp-cell--preview' : 'vsp-cell--preview-bad')
+  }
+
+  if (!inSeg && !rangeAnchor.value && isCellOccupiedByBlocks(cell)) {
+    const mk = getPageDayMark(cell)
+    if (mk) list.push('vsp-mark', `mark-${mk}`)
+    else list.push('vsp-cell--blocked')
+  }
+
   return list
 }
 
+function cellStyle(cell) {
+  if (!cell) return null
+  const segIdx = segmentIndexForCell(cell)
+  if (segIdx >= 0) return { '--seg-color': segColor(segIdx) }
+  return null
+}
+
 function cellDisabled(cell) {
-  if (!cell) return true
-  if (planningDays.value < 1) return true
-  return !canStartRangeAt(cell, planningDays.value)
+  if (!cell || totalAnnualDays.value < FIRST_SEGMENT_MIN_DAYS) return true
+  if (remainingDays.value === 0 && !rangeAnchor.value && segmentIndexForCell(cell) < 0) return true
+  return false
 }
 
 function cellTabindex(cell) {
-  if (!cell || planningDays.value < 1) return -1
-  return canStartRangeAt(cell, planningDays.value) ? 0 : -1
+  return cellDisabled(cell) ? -1 : 0
 }
 
 function cellTitle(cell) {
@@ -180,123 +239,205 @@ function cellTitle(cell) {
   return `${base}${fmtDate(cell)}`
 }
 
-const saveError = ref('')
-
 function savePlan() {
   saveError.value = ''
-  if (!selectedRange.value) {
-    saveError.value = 'Выберите дату начала в календаре'
-    return
-  }
-  const { from, to } = selectedRange.value
-  const days = planningDays.value
-  if (!canStartRangeAt(from, days)) {
-    saveError.value = 'Период больше недоступен — сбросьте и выберите снова'
-    return
-  }
-  const y = from.slice(0, 4)
-  const ys = `${y}-01-01`
-  const ye = `${y}-12-31`
+  if (segments.value.length === 0) { saveError.value = 'Добавьте хотя бы одну часть.'; return }
+  if (remainingDays.value !== 0) { saveError.value = `Осталось ${remainingDays.value} нераспределённых дней.`; return }
+  if (!hasLongSegment.value) { saveError.value = `Хотя бы одна часть должна быть не менее ${FIRST_SEGMENT_MIN_DAYS} дней.`; return }
+
+  const y = String(calYear.value)
   allRequests.value = allRequests.value.filter(r => {
     if (r.employee !== currentUser.value.name || r.type !== 'Ежегодный' || r.status !== 'planned') return true
-    return !(r.from <= ye && r.to >= ys)
+    return !(r.from <= `${y}-12-31` && r.to >= `${y}-01-01`)
   })
-  allRequests.value.push({
-    id: Date.now(),
-    employee: currentUser.value.name,
-    from,
-    to,
-    days,
-    type: 'Ежегодный',
-    status: 'planned',
-  })
-  vacationPlanFlash.value = { from, to }
+  let baseId = Date.now()
+  for (const seg of segments.value) {
+    allRequests.value.push({ id: baseId++, employee: currentUser.value.name, from: seg.from, to: seg.to, days: seg.days, type: 'Ежегодный', status: 'planned' })
+  }
+  vacationPlanFlash.value = { from: segments.value[0].from, to: segments.value[segments.value.length - 1].to }
   router.push({ name: 'vacations' })
 }
 </script>
 
 <template>
-  <div class="vsp-page">
+  <div class="vsp">
     <RouterLink :to="{ name: 'vacations' }" class="vsp-back">
       <ChevronLeft :size="16" stroke-width="2" />
       К отпускам
     </RouterLink>
 
-    <template v-if="planningDays >= 1">
-      <p class="vsp-lead">
-        Нажмите день начала — подсветится период на {{ planningDays }}&nbsp;{{ planningDays === 1 ? 'день' : planningDays < 5 ? 'дня' : 'дней' }}.
-        Другой доступный день — новый период.
+    <!-- Not enough days -->
+    <div v-if="totalAnnualDays < FIRST_SEGMENT_MIN_DAYS" class="vsp-empty-card" role="status">
+      <Info :size="18" stroke-width="1.75" class="vsp-empty-ic" />
+      <p v-if="totalAnnualDays < 1">Нет доступных дней для планирования.</p>
+      <p v-else>
+        Недостаточно дней: первая часть ежегодного отпуска — не менее {{ FIRST_SEGMENT_MIN_DAYS }} календарных дней.
       </p>
-
-      <div class="vsp-stat">
-        <span class="vsp-stat-num">{{ planningDays }}</span>
-        <span class="vsp-stat-meta">
-          положено ежегодно · использовано {{ balance.used }} из {{ balance.total }}
-          <template v-if="draftAnnualPlannedDays > 0"> · черновик в плане {{ draftAnnualPlannedDays }} дн.</template>
-        </span>
-      </div>
-    </template>
-
-    <div v-if="planningDays < 1" class="vsp-empty" role="status">
-      <Info :size="16" stroke-width="1.75" class="vsp-empty-ic" aria-hidden="true" />
-      <p>Нет доступных дней для плана.</p>
-      <UiButton variant="secondary" type="button" @click="router.push({ name: 'vacations' })">
-        К отпускам
-      </UiButton>
+      <UiButton variant="secondary" type="button" @click="router.push({ name: 'vacations' })">К отпускам</UiButton>
     </div>
 
     <template v-else>
-      <div class="vsp-toolbar">
-        <div class="vsp-cal-nav">
-          <UiIconButton type="button" size="nav" aria-label="Предыдущий год" @click="prevYear">
-            <ChevronLeft :size="14" stroke-width="2" />
-          </UiIconButton>
-          <span class="vsp-year-label">{{ calYear }}</span>
-          <UiIconButton type="button" size="nav" aria-label="Следующий год" @click="nextYear">
-            <ChevronRight :size="14" stroke-width="2" />
-          </UiIconButton>
-        </div>
-
-        <div class="vsp-toolbar-right">
-          <div v-if="selectedRange" class="vsp-summary">
-            <span class="vsp-sum-dates">{{ fmtDate(selectedRange.from) }} — {{ fmtDate(selectedRange.to) }}</span>
-            <span class="vsp-sum-days">{{ planningDays }} дн.</span>
-          </div>
-          <div v-else class="vsp-summary vsp-summary--placeholder">Выберите дату в календаре</div>
-
-          <p v-if="saveError" class="vsp-error">{{ saveError }}</p>
-
-          <div class="vsp-actions">
-            <UiButton variant="secondary" type="button" :disabled="!selectedRange" @click="clearSelection">
-              Сбросить
-            </UiButton>
-            <UiButton variant="primary" type="button" :disabled="!selectedRange" @click="savePlan">
-              В план
-            </UiButton>
-          </div>
+      <div class="vsp-info-alert">
+        <Info :size="15" stroke-width="1.75" class="vsp-info-alert-ic" />
+        <div class="vsp-info-alert-body">
+          <span class="vsp-info-alert-title">Планирование ежегодного отпуска · {{ totalAnnualDays }} дней</span>
+          <span class="vsp-info-alert-text">
+            Разделите отпуск на части и расставьте в календаре.
+            Одна часть — не менее <strong>{{ FIRST_SEGMENT_MIN_DAYS }}</strong> календарных дней, остальные — любого размера.
+          </span>
         </div>
       </div>
 
-      <div class="vsp-months">
-        <div v-for="mo in yearMonths" :key="mo.title" class="vsp-month">
-          <div class="vsp-mo-title">{{ mo.title }}</div>
-          <div class="vsp-grid">
-            <div v-for="d in DAYS_SHORT" :key="d" class="vsp-dow">{{ d }}</div>
-            <template v-for="(cell, i) in mo.cells" :key="`${mo.title}-${i}`">
-              <div v-if="!cell" class="vsp-cell vsp-cell--empty" />
-              <button
-                v-else
-                type="button"
-                class="vsp-cell"
-                :class="cellClasses(cell)"
-                :disabled="cellDisabled(cell)"
-                :tabindex="cellTabindex(cell)"
-                :title="cellTitle(cell)"
-                @click="onCellClick(cell)"
-              >
-                <span class="vsp-day">{{ Number(cell.split('-')[2]) }}</span>
-              </button>
+      <!-- ── Two-column layout ─────────────────────────────────────────── -->
+      <div class="vsp-layout">
+
+        <!-- LEFT: calendar -->
+        <div class="vsp-cal-area">
+          <div class="vsp-cal-head">
+            <UiIconButton type="button" size="nav" aria-label="Предыдущий год" @click="prevYear">
+              <ChevronLeft :size="14" stroke-width="2" />
+            </UiIconButton>
+            <span class="vsp-year">{{ calYear }}</span>
+            <UiIconButton type="button" size="nav" aria-label="Следующий год" @click="nextYear">
+              <ChevronRight :size="14" stroke-width="2" />
+            </UiIconButton>
+          </div>
+
+          <div class="vsp-months" @mouseleave="onCalendarLeave">
+            <div v-for="mo in yearMonths" :key="mo.title" class="vsp-month">
+              <div class="vsp-mo-title">{{ mo.title }}</div>
+              <div class="vsp-grid">
+                <div v-for="d in DAYS_SHORT" :key="d" class="vsp-dow">{{ d }}</div>
+                <template v-for="(cell, ci) in mo.cells" :key="`${mo.title}-${ci}`">
+                  <div v-if="!cell" class="vsp-cell vsp-cell--empty" />
+                  <button
+                    v-else
+                    type="button"
+                    class="vsp-cell"
+                    :class="cellClasses(cell)"
+                    :style="cellStyle(cell)"
+                    :disabled="cellDisabled(cell)"
+                    :tabindex="cellTabindex(cell)"
+                    :title="cellTitle(cell)"
+                    @click="onCellClick(cell)"
+                    @mouseenter="onCellHover(cell)"
+                  >
+                    <span class="vsp-day">{{ Number(cell.split('-')[2]) }}</span>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: sidebar -->
+        <div class="vsp-sidebar">
+          <!-- Progress card -->
+          <div class="vsp-progress-card">
+            <div class="vsp-progress-title">Распределение дней</div>
+            <div class="vsp-progress-bar-wrap">
+              <div class="vsp-progress-bar">
+                <div
+                  v-for="(seg, i) in segments"
+                  :key="`bar-${i}`"
+                  class="vsp-bar-seg"
+                  :style="{ width: `${(seg.days / totalAnnualDays) * 100}%`, background: segColor(i) }"
+                  :title="`Часть ${i + 1}: ${seg.days} дн.`"
+                />
+              </div>
+              <div class="vsp-progress-labels">
+                <span>{{ allocatedDays }} из {{ totalAnnualDays }}</span>
+                <span v-if="remainingDays > 0" class="vsp-progress-remaining">осталось {{ remainingDays }}</span>
+                <span v-else class="vsp-progress-done">готово</span>
+              </div>
+            </div>
+            <div class="vsp-progress-rule">
+              <Info :size="12" stroke-width="2" />
+              Первая часть — не менее {{ FIRST_SEGMENT_MIN_DAYS }} календарных дней
+            </div>
+          </div>
+
+          <!-- Status hint -->
+          <div class="vsp-hint" :class="{ 'vsp-hint--active': rangeAnchor }">
+            <template v-if="rangeAnchor">
+              <span class="vsp-hint-dot vsp-hint-dot--pulse" />
+              <span>Выберите последний день</span>
+              <button type="button" class="vsp-hint-cancel" @click="cancelAnchor">Отменить</button>
             </template>
+            <template v-else-if="remainingDays > 0">
+              <Plus :size="13" stroke-width="2" class="vsp-hint-ic" />
+              <span>{{ segments.length === 0 ? 'Нажмите первый день в календаре' : 'Добавьте следующую часть' }}</span>
+            </template>
+            <template v-else>
+              <Check :size="13" stroke-width="2" class="vsp-hint-ic vsp-hint-ic--done" />
+              <span>Все дни распределены</span>
+            </template>
+          </div>
+
+          <!-- Preview of current selection -->
+          <Transition name="preview-fade">
+            <div v-if="previewRange" class="vsp-preview" :class="{ 'vsp-preview--bad': !previewRange.valid }">
+              <span class="vsp-preview-dates">{{ fmtDateShort(previewRange.from) }} — {{ fmtDateShort(previewRange.to) }}</span>
+              <span class="vsp-preview-days">{{ previewRange.days }} дн.</span>
+              <span v-if="!previewRange.valid" class="vsp-preview-warn">
+                {{ !hasLongSegment && previewRange.days < FIRST_SEGMENT_MIN_DAYS ? `мин. ${FIRST_SEGMENT_MIN_DAYS}` : previewRange.days > remainingDays ? 'превышает остаток' : 'пересечение' }}
+              </span>
+            </div>
+          </Transition>
+
+          <!-- Parts list -->
+          <div class="vsp-parts-list">
+            <TransitionGroup name="part-list">
+              <div
+                v-for="(seg, i) in segments"
+                :key="`${seg.from}-${seg.to}`"
+                class="vsp-part"
+              >
+                <div class="vsp-part-dot" :style="{ background: segColor(i) }" />
+                <div class="vsp-part-body">
+                  <div class="vsp-part-head">
+                    <span class="vsp-part-name">Часть {{ i + 1 }}</span>
+                    <span v-if="seg.days >= FIRST_SEGMENT_MIN_DAYS" class="vsp-part-badge">основная</span>
+                  </div>
+                  <div class="vsp-part-meta">
+                    {{ fmtDate(seg.from) }} — {{ fmtDate(seg.to) }} · {{ seg.days }} дн.
+                  </div>
+                </div>
+                <button type="button" class="vsp-part-rm" :title="`Удалить часть ${i + 1}`" @click="removeSegment(i)">
+                  <X :size="14" stroke-width="2" />
+                </button>
+              </div>
+            </TransitionGroup>
+            <div v-if="segments.length === 0" class="vsp-parts-empty">
+              Частей пока нет — выберите период в календаре
+            </div>
+          </div>
+
+          <!-- Error -->
+          <Transition name="preview-fade">
+            <div v-if="saveError" class="vsp-error">{{ saveError }}</div>
+          </Transition>
+
+          <!-- Actions -->
+          <div class="vsp-actions">
+            <UiButton
+              variant="secondary"
+              type="button"
+              :disabled="segments.length === 0 && !rangeAnchor"
+              @click="resetDraft"
+            >
+              <RotateCcw :size="13" stroke-width="2" />
+              Сбросить
+            </UiButton>
+            <UiButton
+              variant="primary"
+              type="button"
+              :disabled="remainingDays !== 0 || segments.length === 0"
+              @click="savePlan"
+            >
+              <Check :size="13" stroke-width="2" />
+              Сохранить план
+            </UiButton>
           </div>
         </div>
       </div>
@@ -305,12 +446,11 @@ function savePlan() {
 </template>
 
 <style scoped>
-.vsp-page {
+.vsp {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   min-width: 0;
-  max-width: min(1040px, 100%);
 }
 
 .vsp-back {
@@ -321,173 +461,135 @@ function savePlan() {
   color: #888;
   text-decoration: none;
   width: fit-content;
+  transition: color 0.12s;
 }
-.vsp-back:hover {
-  color: #333;
-}
+.vsp-back:hover { color: #333; }
 
-.vsp-lead {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #777;
-  max-width: 52em;
-}
-
-.vsp-stat {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 12px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid #e8e8e8;
-}
-.vsp-stat-num {
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  color: #1a1a1a;
-  line-height: 1;
-}
-.vsp-stat-meta {
-  font-size: 12px;
-  color: #999;
-}
-
-.vsp-empty {
+/* ── Empty state ── */
+.vsp-empty-card {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  color: #666;
-  font-size: 13px;
+  gap: 12px;
+  padding: 24px;
+  border-radius: 12px;
+  border: 1px solid #e5e5e5;
+  background: #fff;
+  color: #555;
+  font-size: 13.5px;
   line-height: 1.5;
 }
-.vsp-empty-ic {
-  color: #bbb;
-  flex-shrink: 0;
-}
+.vsp-empty-card p { margin: 0; }
+.vsp-empty-ic { color: #bbb; flex-shrink: 0; }
 
-.vsp-toolbar {
+/* ── Info alert ── */
+.vsp-info-alert {
   display: flex;
-  flex-wrap: wrap;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px 24px;
-  padding: 4px 0 12px;
-  border-bottom: 1px solid #e8e8e8;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: #f6f8fe;
+  border: 1px solid #e2e8f6;
+}
+.vsp-info-alert-ic {
+  color: #7a9ae0;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.vsp-info-alert-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.vsp-info-alert-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2d4a8f;
+}
+.vsp-info-alert-text {
+  font-size: 12.5px;
+  color: #667;
+  line-height: 1.5;
+}
+.vsp-info-alert-text strong {
+  font-weight: 700;
+  color: #444;
 }
 
-.vsp-cal-nav {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+/* ── Two-column layout ── */
+.vsp-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 24px;
+  align-items: start;
 }
-.vsp-year-label {
-  font-size: 15px;
-  font-weight: 500;
+@media (max-width: 960px) {
+  .vsp-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Calendar area ── */
+.vsp-cal-area {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.vsp-cal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vsp-year {
+  font-size: 16px;
+  font-weight: 600;
   color: #1a1a1a;
-  min-width: 48px;
+  min-width: 52px;
   text-align: center;
   font-variant-numeric: tabular-nums;
-}
-
-.vsp-toolbar-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
-}
-
-.vsp-summary {
-  font-size: 13px;
-  color: #333;
-  text-align: right;
-  line-height: 1.35;
-}
-.vsp-summary--placeholder {
-  color: #aaa;
-  font-weight: 400;
-}
-.vsp-sum-dates {
-  font-weight: 500;
-}
-.vsp-sum-days {
-  margin-left: 6px;
-  color: #888;
-  font-size: 12px;
-}
-
-.vsp-error {
-  margin: 0;
-  font-size: 12px;
-  color: #c62828;
-  text-align: right;
-}
-
-.vsp-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
 }
 
 .vsp-months {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 18px 20px;
-  padding-top: 4px;
+  gap: 20px 18px;
 }
-@media (max-width: 900px) {
-  .vsp-months {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .vsp-toolbar-right {
-    align-items: flex-start;
-  }
-  .vsp-summary,
-  .vsp-error {
-    text-align: left;
-  }
-  .vsp-actions {
-    justify-content: flex-start;
-  }
+@media (max-width: 720px) {
+  .vsp-months { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 480px) {
-  .vsp-months {
-    grid-template-columns: 1fr;
-  }
+  .vsp-months { grid-template-columns: 1fr; }
 }
 
 .vsp-mo-title {
   font-size: 11px;
-  font-weight: 500;
-  color: #999;
+  font-weight: 600;
+  color: #888;
   margin-bottom: 6px;
-  text-align: left;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 .vsp-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
+  gap: 2px;
 }
 .vsp-dow {
   text-align: center;
-  font-size: 9px;
-  color: #c8c8c8;
-  font-weight: 500;
-  padding: 0 0 3px;
-  letter-spacing: -0.02em;
+  font-size: 9.5px;
+  color: #bbb;
+  font-weight: 600;
+  padding: 0 0 4px;
 }
 
+/* ── Calendar cells ── */
 .vsp-cell {
   aspect-ratio: 1;
   min-height: 0;
-  border-radius: 2px;
+  border-radius: 4px;
   border: none;
   padding: 0;
   margin: 0;
@@ -497,72 +599,343 @@ function savePlan() {
   cursor: pointer;
   font-family: inherit;
   background: transparent;
-  transition: background 0.1s, color 0.1s, opacity 0.1s;
+  color: #444;
+  transition: background 0.08s, box-shadow 0.08s, color 0.08s;
+  position: relative;
+}
+.vsp-cell:hover:not(:disabled):not(.vsp-cell--seg) {
+  background: #f0f2f8;
 }
 .vsp-cell--empty {
   visibility: hidden;
   pointer-events: none;
 }
-.vsp-cell--go {
-  color: #444;
-}
-.vsp-cell--go:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.05);
-}
-.vsp-cell--disabled {
-  opacity: 0.22;
-  cursor: not-allowed;
+.vsp-cell:disabled {
+  opacity: 0.2;
+  cursor: default;
   pointer-events: none;
-  color: #999;
 }
-.vsp-cell--picked {
-  background: rgba(0, 0, 0, 0.08);
-  color: #111;
-  font-weight: 600;
-}
-.vsp-cell--picked.vsp-cell--disabled {
-  opacity: 0.42;
-  cursor: not-allowed;
-}
-.vsp-cell--picked.vsp-cell--go {
-  cursor: pointer;
-}
-.vsp-cell--weekend:not(.vsp-cell--picked):not(.vsp-mark) .vsp-day {
-  color: #b0b0b0;
-}
-.vsp-cell--picked.vsp-cell--weekend .vsp-day {
-  color: #111;
+.vsp-cell--weekend:not(.vsp-cell--seg):not(.vsp-cell--preview):not(.vsp-cell--preview-bad) .vsp-day {
+  color: #bbb;
 }
 
-.vsp-mark.mark-planned {
+/* Segment cells — colored by segment index via CSS var */
+.vsp-cell--seg {
+  background: var(--seg-color, #5b8ef0);
+  opacity: 0.25;
+  cursor: default;
+  pointer-events: none;
+}
+.vsp-cell--seg .vsp-day {
+  color: #fff;
+  font-weight: 700;
+  mix-blend-mode: normal;
+}
+/* override disabled look for segments */
+button.vsp-cell.vsp-cell--seg:disabled {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+/* Anchor cell */
+.vsp-cell--anchor {
+  box-shadow: inset 0 0 0 2px #5b8ef0;
   background: rgba(91, 142, 240, 0.12);
+  z-index: 1;
 }
-.vsp-mark.mark-planned .vsp-day {
-  color: #4a7fd4;
-  font-weight: 500;
+.vsp-cell--anchor .vsp-day {
+  color: #2d5dc9;
+  font-weight: 700;
 }
+
+/* Preview range (valid) */
+.vsp-cell--preview {
+  background: rgba(91, 142, 240, 0.14);
+}
+.vsp-cell--preview .vsp-day {
+  color: #2d5dc9;
+  font-weight: 600;
+}
+
+/* Preview range (invalid) */
+.vsp-cell--preview-bad {
+  background: rgba(224, 90, 90, 0.1);
+}
+.vsp-cell--preview-bad .vsp-day {
+  color: #c04040;
+  font-weight: 600;
+}
+
+/* Blocked (other requests) */
+.vsp-cell--blocked {
+  pointer-events: none;
+  opacity: 0.18;
+}
+
+/* Existing request marks */
 .vsp-mark.mark-approved,
 .vsp-mark.mark-confirmed {
-  background: rgba(76, 175, 125, 0.1);
+  background: rgba(76, 175, 125, 0.12);
+  pointer-events: none;
 }
 .vsp-mark.mark-approved .vsp-day,
-.vsp-mark.mark-confirmed .vsp-day {
-  color: #3d9a6a;
-  font-weight: 500;
-}
+.vsp-mark.mark-confirmed .vsp-day { color: #3d9a6a; font-weight: 600; }
 .vsp-mark.mark-pending,
 .vsp-mark.mark-pending_manager,
 .vsp-mark.mark-approved_by_manager {
   background: rgba(0, 0, 0, 0.04);
+  pointer-events: none;
 }
-.vsp-mark.mark-pending_manager .vsp-day {
-  color: #666;
-  font-weight: 500;
-}
+.vsp-mark.mark-pending_manager .vsp-day { color: #666; font-weight: 600; }
 
 .vsp-day {
-  font-size: 11px;
+  font-size: 11.5px;
   user-select: none;
   line-height: 1;
+  position: relative;
+  z-index: 1;
 }
+
+/* ── Sidebar ── */
+.vsp-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 16px;
+}
+
+/* Progress card */
+.vsp-progress-card {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.vsp-progress-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+.vsp-progress-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vsp-progress-bar {
+  height: 10px;
+  border-radius: 5px;
+  background: #f0f0f0;
+  display: flex;
+  overflow: hidden;
+  gap: 1px;
+}
+.vsp-bar-seg {
+  height: 100%;
+  min-width: 3px;
+  border-radius: 5px;
+  transition: width 0.2s ease;
+}
+.vsp-progress-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #888;
+}
+.vsp-progress-remaining { color: #c47a00; font-weight: 500; }
+.vsp-progress-done { color: #4caf7d; font-weight: 600; }
+.vsp-progress-rule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #aaa;
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+}
+.vsp-progress-rule svg { color: #ccc; flex-shrink: 0; }
+
+/* Hint */
+.vsp-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8f9fc;
+  font-size: 12.5px;
+  color: #888;
+  min-height: 38px;
+  transition: background 0.15s, color 0.15s;
+}
+.vsp-hint--active {
+  background: #eef3ff;
+  color: #3366cc;
+}
+.vsp-hint-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5b8ef0;
+  flex-shrink: 0;
+}
+.vsp-hint-dot--pulse {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(91, 142, 240, 0.5); }
+  50% { box-shadow: 0 0 0 5px rgba(91, 142, 240, 0); }
+}
+.vsp-hint-ic { color: #bbb; flex-shrink: 0; }
+.vsp-hint-ic--done { color: #4caf7d; }
+.vsp-hint-cancel {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid #dde4f8;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 11.5px;
+  color: #5b8ef0;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.vsp-hint-cancel:hover { background: #eef3ff; }
+
+/* Preview */
+.vsp-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #eef3ff;
+  border: 1px solid #d6e4fd;
+  font-size: 12.5px;
+  color: #2d5dc9;
+}
+.vsp-preview--bad {
+  background: #fef5f5;
+  border-color: #fbd5d5;
+  color: #c04040;
+}
+.vsp-preview-dates { font-weight: 600; }
+.vsp-preview-days { color: inherit; opacity: 0.7; }
+.vsp-preview-warn { margin-left: auto; font-size: 11px; font-weight: 500; }
+
+.preview-fade-enter-active,
+.preview-fade-leave-active { transition: opacity 0.12s ease; }
+.preview-fade-enter-from,
+.preview-fade-leave-to { opacity: 0; }
+
+/* Parts list */
+.vsp-parts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 48px;
+}
+.vsp-parts-empty {
+  font-size: 12px;
+  color: #bbb;
+  text-align: center;
+  padding: 14px 8px;
+}
+.vsp-part {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  background: #fff;
+  border: 1px solid #eceef5;
+  border-radius: 10px;
+  transition: box-shadow 0.12s;
+}
+.vsp-part:hover {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.vsp-part-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.vsp-part-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.vsp-part-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vsp-part-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #333;
+}
+.vsp-part-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5b8ef0;
+  background: #eef3ff;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.vsp-part-meta {
+  font-size: 12px;
+  color: #999;
+}
+.vsp-part-rm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #ccc;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.vsp-part-rm:hover {
+  background: #fef5f5;
+  color: #c62828;
+}
+
+/* Part list transitions */
+.part-list-enter-active { transition: all 0.2s ease-out; }
+.part-list-leave-active { transition: all 0.15s ease-in; }
+.part-list-enter-from { opacity: 0; transform: translateX(12px); }
+.part-list-leave-to   { opacity: 0; transform: translateX(-12px); }
+.part-list-move { transition: transform 0.2s ease; }
+
+/* Error */
+.vsp-error {
+  font-size: 12px;
+  color: #c62828;
+  background: #fef5f5;
+  border: 1px solid #fbd5d5;
+  border-radius: 8px;
+  padding: 8px 12px;
+  line-height: 1.4;
+}
+
+/* Actions */
+.vsp-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
+}
+.vsp-actions > * { flex: 1; }
 </style>
