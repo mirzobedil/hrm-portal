@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import {
   Check, X, AlertTriangle, GanttChart, List,
-  Users, Palmtree, CalendarClock,
+  Users,
 } from 'lucide-vue-next'
 import StatusBadge from '@/components/StatusBadge.vue'
 import {
@@ -190,18 +190,16 @@ function empBars(empId) {
     .filter(Boolean)
 }
 
-// ── Summary ───────────────────────────────────────────────────────────────
-const today = '2025-04-16'   // mock "today" for demo data context
+// ── Summary: сотрудники с хотя бы одной заявкой «planned» / всего в справочнике ─
+const totalStaffCount = EMPLOYEES.length
 
-const onVacationNow = computed(() =>
-  vacations.value.filter(v =>
-    (v.status === 'approved') && v.from <= today && v.to >= today
-  ).length
-)
-
-const plannedCount = computed(() =>
-  vacations.value.filter(v => v.status === 'planned').length
-)
+const plannedStaffCount = computed(() => {
+  const ids = new Set()
+  for (const v of vacations.value) {
+    if (v.status === 'planned') ids.add(v.empId)
+  }
+  return ids.size
+})
 
 // ── Risk detection ─────────────────────────────────────────────────────────
 const risks = computed(() => {
@@ -269,6 +267,9 @@ const conflictingVacIds = computed(() => {
   }
   return ids
 })
+
+/** Сколько записей плана участвуют в пересечении отпусков внутри отдела (как в таблице / Gantt). */
+const conflictingVacationCount = computed(() => conflictingVacIds.value.size)
 
 function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -346,38 +347,37 @@ const tableRows = computed(() =>
 <template>
   <div class="vp">
 
-    <!-- ── Summary (компактно, как Dashboard) ────────────────────────── -->
-    <div class="stats-grid">
-      <div class="card stat-card">
-        <div class="stat-top">
-          <span class="stat-label">Сотрудников</span>
-          <Users :size="15" stroke-width="1.5" class="stat-icon" />
+    <!-- ── Сводка плана: запланировали / всего + согласование ─────────── -->
+    <div class="card plan-summary-card">
+      <div class="plan-summary-main">
+        <div class="plan-summary-icon-wrap" aria-hidden="true">
+          <Users :size="18" stroke-width="1.5" class="plan-summary-icon" />
         </div>
-        <div class="stat-value">{{ EMPLOYEES.length }}</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-top">
-          <span class="stat-label">В отпуске</span>
-          <Palmtree :size="15" stroke-width="1.5" class="stat-icon" />
+        <div class="plan-summary-text">
+          <div class="plan-summary-label">Годовой план отпусков</div>
+          <div class="plan-summary-value-row">
+            <span class="plan-summary-nums">
+              <span class="plan-summary-num">{{ plannedStaffCount }}</span>
+              <span class="plan-summary-sep">/</span>
+              <span class="plan-summary-den">{{ totalStaffCount }}</span>
+            </span>
+            <span class="plan-summary-hint">сотрудников с запланированным отпуском</span>
+          </div>
+          <div
+            class="plan-summary-conflict-row"
+            :class="{ 'plan-summary-conflict-row--ok': conflictingVacationCount === 0 }"
+          >
+            <AlertTriangle :size="14" stroke-width="2" class="plan-summary-conflict-ic" aria-hidden="true" />
+            <span class="plan-summary-conflict-label">Конфликтов</span>
+            <span class="plan-summary-conflict-num">{{ conflictingVacationCount }}</span>
+            <span class="plan-summary-conflict-hint">заявок с пересечением в отделе</span>
+          </div>
         </div>
-        <div class="stat-value stat-value--green">{{ onVacationNow }}</div>
-        <div class="stat-sub">сейчас</div>
       </div>
-      <div class="card stat-card">
-        <div class="stat-top">
-          <span class="stat-label">Запланировано</span>
-          <CalendarClock :size="15" stroke-width="1.5" class="stat-icon" />
-        </div>
-        <div class="stat-value stat-value--blue">{{ plannedCount }}</div>
-      </div>
-      <div class="card stat-card" :class="{ 'stat-card--risk': risks.length }">
-        <div class="stat-top">
-          <span class="stat-label">Рисков</span>
-          <AlertTriangle :size="15" stroke-width="1.5" class="stat-icon" />
-        </div>
-        <div class="stat-value" :class="risks.length ? 'stat-value--red' : 'stat-value--muted'">{{ risks.length }}</div>
-        <div v-if="risks.length" class="stat-sub">пересечения в отделах</div>
-      </div>
+      <UiButton variant="primary" class="plan-summary-btn" @click="approveAllPlanned">
+        <Check :size="13" stroke-width="2" />
+        Согласовать план
+      </UiButton>
     </div>
 
     <!-- ── Risk alerts ────────────────────────────────────────────────── -->
@@ -404,10 +404,6 @@ const tableRows = computed(() =>
             <GanttChart :size="14" stroke-width="1.8" />
           </UiSwitcherTab>
         </UiSwitcher>
-        <UiButton variant="primary" @click="approveAllPlanned">
-          <Check :size="13" stroke-width="2" />
-          Согласовать план
-        </UiButton>
       </div>
     </div>
 
@@ -658,43 +654,98 @@ const tableRows = computed(() =>
   border-radius: 10px;
 }
 
-/* ── Summary (как Dashboard) ── */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-.stat-card {
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-.stat-card--risk {
-  border-color: #fbd5d5;
-  background: #fff9f9;
-}
-.stat-top {
+/* ── Сводка плана (одна карточка) ── */
+.plan-summary-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
 }
-.stat-label { font-size: 12px; color: #999; font-weight: 450; line-height: 1.25; }
-.stat-icon  { color: #bbb; flex-shrink: 0; }
-.stat-value {
+.plan-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+}
+.plan-summary-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #f4f6fb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.plan-summary-icon { color: #5b8ef0; }
+.plan-summary-text { min-width: 0; }
+.plan-summary-label {
+  font-size: 12px;
+  color: #999;
+  font-weight: 500;
+  margin-bottom: 6px;
+  letter-spacing: -0.2px;
+}
+.plan-summary-value-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 10px;
+}
+.plan-summary-nums {
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.5px;
-  line-height: 1;
   color: #1a1a1a;
+  line-height: 1;
 }
-.stat-value--green  { color: #4caf7d; }
-.stat-value--blue   { color: #5b8ef0; }
-.stat-value--red    { color: #e05a5a; }
-.stat-value--muted  { color: #ccc; }
-.stat-sub { font-size: 11.5px; color: #aaa; }
+.plan-summary-num { color: #5b8ef0; }
+.plan-summary-sep { color: #ccc; font-weight: 500; margin: 0 2px; }
+.plan-summary-den { color: #888; font-weight: 600; }
+.plan-summary-hint {
+  font-size: 13px;
+  color: #777;
+  line-height: 1.35;
+  max-width: 420px;
+}
+.plan-summary-conflict-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f0f0f0;
+  font-size: 12.5px;
+}
+.plan-summary-conflict-ic {
+  color: #e8a020;
+  flex-shrink: 0;
+}
+.plan-summary-conflict-row--ok .plan-summary-conflict-ic {
+  color: #9ccc9c;
+}
+.plan-summary-conflict-label {
+  color: #888;
+  font-weight: 500;
+}
+.plan-summary-conflict-num {
+  font-weight: 700;
+  font-size: 15px;
+  color: #c47a00;
+  min-width: 1.25em;
+}
+.plan-summary-conflict-row--ok .plan-summary-conflict-num {
+  color: #4caf7d;
+}
+.plan-summary-conflict-hint {
+  color: #aaa;
+  font-size: 12px;
+}
+.plan-summary-btn { flex-shrink: 0; }
 
 /* ── Risk alerts ── */
 .risk-alerts { display: flex; flex-direction: column; gap: 6px; }
