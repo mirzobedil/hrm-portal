@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed, watch, inject } from 'vue'
+import { ref, computed, inject, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, Info, X, Check, Plus, RotateCcw, AlertTriangle } from 'lucide-vue-next'
-import { UiButton, UiIconButton } from '@/components/ui'
+import { ChevronLeft, Info, X, Check, Plus, RotateCcw, AlertTriangle } from 'lucide-vue-next'
+import { UiButton } from '@/components/ui'
 import { STATUS_LABELS as statusLabel, VACATION_PLANNING_BLOCKING_STATUSES } from '@/constants/vacation'
 import { EMPLOYEE_DATA } from '@/data/vacationRequests'
 import { useVacationRequests } from '@/composables/useVacationRequests'
@@ -23,11 +23,18 @@ const balance = computed(() => {
   return b ? { total: b.total, used: b.used } : { total: 28, used: 0 }
 })
 
+/**
+ * График ежегодного отпуска на календарный год составляется в начале года:
+ * распределяется полная годовая норма; по самому этому планируемому году отгулы ещё не использованы.
+ * Лимит для разбивки на части — `balance.total` (без вычета used / других лет).
+ */
 const totalAnnualDays = computed(() => Math.max(0, balance.value.total))
 
-const calYear = ref(new Date().getFullYear())
-const yearStart = computed(() => `${calYear.value}-01-01`)
-const yearEnd = computed(() => `${calYear.value}-12-31`)
+/** Фиксированный календарный год годового плана (демо). */
+const PLAN_CALENDAR_YEAR = 2027
+
+const yearStart = computed(() => `${PLAN_CALENDAR_YEAR}-01-01`)
+const yearEnd = computed(() => `${PLAN_CALENDAR_YEAR}-12-31`)
 
 const overlapBlocks = computed(() =>
   allRequests.value.filter(
@@ -36,7 +43,7 @@ const overlapBlocks = computed(() =>
       VACATION_PLANNING_BLOCKING_STATUSES.includes(r.status) &&
       r.from <= yearEnd.value &&
       r.to >= yearStart.value &&
-      !(r.status === 'planned' && r.type === 'Ежегодный' && r.from.slice(0, 4) === String(calYear.value)),
+      !(r.status === 'planned' && r.type === 'Ежегодный' && r.from.slice(0, 4) === String(PLAN_CALENDAR_YEAR)),
   ),
 )
 
@@ -47,7 +54,7 @@ const myBlocksForMark = computed(() =>
       r.status !== 'rejected' &&
       r.from <= yearEnd.value &&
       r.to >= yearStart.value &&
-      !(r.status === 'planned' && r.type === 'Ежегодный' && r.from.slice(0, 4) === String(calYear.value)),
+      !(r.status === 'planned' && r.type === 'Ежегодный' && r.from.slice(0, 4) === String(PLAN_CALENDAR_YEAR)),
   ),
 )
 
@@ -59,20 +66,17 @@ const DAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 
 const yearMonths = computed(() =>
   Array.from({ length: 12 }, (_, m) => {
-    const total = new Date(calYear.value, m + 1, 0).getDate()
-    let dow = new Date(calYear.value, m, 1).getDay()
+    const total = new Date(PLAN_CALENDAR_YEAR, m + 1, 0).getDate()
+    let dow = new Date(PLAN_CALENDAR_YEAR, m, 1).getDay()
     dow = dow === 0 ? 6 : dow - 1
     const cells = []
     for (let i = 0; i < dow; i++) cells.push(null)
     for (let d = 1; d <= total; d++) {
-      cells.push(`${calYear.value}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
+      cells.push(`${PLAN_CALENDAR_YEAR}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
     }
     return { title: MONTHS_RU[m], cells }
   }),
 )
-
-function prevYear() { calYear.value-- }
-function nextYear() { calYear.value++ }
 
 function fmtDate(iso) {
   const [y, m, d] = iso.split('-')
@@ -83,9 +87,16 @@ function fmtDateShort(iso) {
   return `${d}.${m}`
 }
 function hasOverlap(a1, a2, b1, b2) { return a1 <= b2 && a2 >= b1 }
+
+/** ISO Y-M-D как локальная календарная дата (без сдвига UTC у `new Date('YYYY-MM-DD')`). */
+function parseIsoDateLocal(iso) {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
 function inclusiveCalendarDays(fromIso, toIso) {
-  const t0 = new Date(fromIso)
-  const t1 = new Date(toIso)
+  const t0 = parseIsoDateLocal(fromIso)
+  const t1 = parseIsoDateLocal(toIso)
   return Math.round((t1 - t0) / 86400000) + 1
 }
 function isWeekend(dateStr) {
@@ -101,14 +112,16 @@ const hoverCell = ref(null)
 const saveError = ref('')
 
 function syncSegmentsFromStore() {
-  const y = String(calYear.value)
+  const y = String(PLAN_CALENDAR_YEAR)
   segments.value = allRequests.value
     .filter(r => r.employee === currentUser.value.name && r.type === 'Ежегодный' && r.status === 'planned' && r.from.startsWith(y))
     .sort((a, b) => a.from.localeCompare(b.from))
     .map(r => ({ from: r.from, to: r.to, days: r.days }))
 }
 
-watch(calYear, () => { syncSegmentsFromStore(); rangeAnchor.value = null; hoverCell.value = null; saveError.value = '' }, { immediate: true })
+onMounted(() => {
+  syncSegmentsFromStore()
+})
 
 const allocatedDays = computed(() => segments.value.reduce((s, seg) => s + seg.days, 0))
 const remainingDays = computed(() => Math.max(0, totalAnnualDays.value - allocatedDays.value))
@@ -280,7 +293,7 @@ function savePlan() {
   if (remainingDays.value !== 0) { saveError.value = `Осталось ${remainingDays.value} нераспределённых дней.`; return }
   if (!hasLongSegment.value) { saveError.value = `Хотя бы одна часть должна быть не менее ${ONE_PART_MIN_CALENDAR_DAYS} дней.`; return }
 
-  const y = String(calYear.value)
+  const y = String(PLAN_CALENDAR_YEAR)
   allRequests.value = allRequests.value.filter(r => {
     if (r.employee !== currentUser.value.name || r.type !== 'Ежегодный' || r.status !== 'planned') return true
     return !(r.from <= `${y}-12-31` && r.to >= `${y}-01-01`)
@@ -329,13 +342,7 @@ function savePlan() {
         <!-- LEFT: calendar -->
         <div class="vsp-cal-area">
           <div class="vsp-cal-head">
-            <UiIconButton type="button" size="nav" aria-label="Предыдущий год" @click="prevYear">
-              <ChevronLeft :size="14" stroke-width="2" />
-            </UiIconButton>
-            <span class="vsp-year">{{ calYear }}</span>
-            <UiIconButton type="button" size="nav" aria-label="Следующий год" @click="nextYear">
-              <ChevronRight :size="14" stroke-width="2" />
-            </UiIconButton>
+            <span class="vsp-year">{{ PLAN_CALENDAR_YEAR }}</span>
           </div>
 
           <div class="vsp-months" @mouseleave="onCalendarLeave">
@@ -606,8 +613,6 @@ function savePlan() {
   font-size: 16px;
   font-weight: 600;
   color: #1a1a1a;
-  min-width: 52px;
-  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
