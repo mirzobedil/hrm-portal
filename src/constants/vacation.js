@@ -36,6 +36,18 @@ export const VACATION_PLANNING_BLOCKING_STATUSES = [
   'confirmed',
 ]
 
+/** HR / планирование: предупреждение, если в какой-либо день доля отдела в отпуске превышает этот % */
+export const DEPT_VACATION_COVERAGE_LIMIT_PERCENT = 30
+
+/** Заявки: статусы, при которых отпуск уже «занимает слот» в календаре отдела (расчёт перегруза) */
+export const DEPT_LOAD_REQUEST_STATUSES = [
+  'planned',
+  'pending_manager',
+  'approved_by_manager',
+  'approved',
+  'confirmed',
+]
+
 /** Подписи статусов заявок (ключ = class / status в данных) */
 export const STATUS_LABELS = {
   approved: 'Одобрено',

@@ -1,12 +1,7 @@
 <script setup>
 import { inject, computed, onMounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import {
-  CalendarDays, TrendingUp, Users, Clock,
-  Palmtree, UserCheck, AlertCircle, CheckCircle2,
-  ArrowRight, Building2, CalendarCheck, Banknote,
-  ClipboardList, Bell, ChevronRight,
-} from 'lucide-vue-next'
+import { AlertCircle, ChevronRight } from 'lucide-vue-next'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { STATUS_LABELS } from '@/constants/vacation.js'
 import {
@@ -127,36 +122,24 @@ const recentActivity = [
       <!-- Stat cards -->
       <div class="stats-grid">
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Остаток отпуска</span>
-            <CalendarDays :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Остаток отпуска</span>
           <div class="stat-value green">{{ staffRemaining }}</div>
           <div class="stat-sub">дней из {{ staffBalance.total }}</div>
         </div>
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Использовано</span>
-            <Palmtree :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Использовано</span>
           <div class="stat-value muted">{{ staffBalance.used }}</div>
           <div class="stat-sub">дней в этом году</div>
         </div>
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Следующий отпуск</span>
-            <CalendarCheck :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Следующий отпуск</span>
           <div class="stat-value">15 апр</div>
-          <div class="stat-sub positive">через 8 дней</div>
+          <div class="stat-sub">через 8 дней</div>
         </div>
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Посещаемость</span>
-            <TrendingUp :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Посещаемость</span>
           <div class="stat-value">98%</div>
-          <div class="stat-sub positive">в этом месяце</div>
+          <div class="stat-sub">в этом месяце</div>
         </div>
       </div>
 
@@ -229,40 +212,28 @@ const recentActivity = [
 
       <div class="stats-grid">
         <div class="card stat-card" :class="{ 'stat-alert': pendingApprovals.length }">
-          <div class="stat-top">
-            <span class="stat-label">Ждут вашего решения</span>
-            <UserCheck :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Ждут вашего решения</span>
           <div class="stat-value" :class="pendingApprovals.length ? 'orange' : 'muted'">
             {{ pendingApprovals.length }}
           </div>
-          <div class="stat-sub" :class="pendingApprovals.length ? 'negative' : ''">
+          <div class="stat-sub">
             {{ pendingApprovals.length ? 'заявки на согласование' : 'всё согласовано' }}
           </div>
         </div>
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">В отпуске сейчас</span>
-            <Palmtree :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">В отпуске сейчас</span>
           <div class="stat-value muted">0</div>
           <div class="stat-sub">из {{ teamSchedule.length }} чел. команды</div>
         </div>
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Отпуска в апреле</span>
-            <CalendarDays :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Отпуска в апреле</span>
           <div class="stat-value">{{ teamSchedule.length }}</div>
           <div class="stat-sub">запланировано</div>
         </div>
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Посещаемость команды</span>
-            <TrendingUp :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Посещаемость команды</span>
           <div class="stat-value">95%</div>
-          <div class="stat-sub positive">в этом месяце</div>
+          <div class="stat-sub">в этом месяце</div>
         </div>
       </div>
 
@@ -353,38 +324,26 @@ const recentActivity = [
 
       <div class="stats-grid dash-hr-stats">
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Всего сотрудников</span>
-            <Users :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Всего сотрудников</span>
           <div class="stat-value">248</div>
-          <div class="stat-sub positive">+3 в этом месяце</div>
+          <div class="stat-sub">+3 в этом месяце</div>
         </div>
         <button type="button" class="card stat-card stat-card--interactive" title="Прокрутить к списку ниже" @click="focusHrTodaySummary">
-          <div class="stat-top">
-            <span class="stat-label">В отпуске сейчас</span>
-            <Palmtree :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">В отпуске сейчас</span>
           <div class="stat-value">{{ hrTodayAbsences.length }}</div>
           <div class="stat-sub">по заявкам на сегодня · список ниже</div>
         </button>
         <button type="button" class="card stat-card stat-card--interactive" :class="{ 'stat-alert': hrConfirmQueue.length }" title="Открыть страницу заявок" @click="goApprovals">
-          <div class="stat-top">
-            <span class="stat-label">Ждут подтверждения HR</span>
-            <CheckCircle2 :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Ждут подтверждения HR</span>
           <div class="stat-value" :class="hrConfirmQueue.length ? 'orange' : 'muted'">
             {{ hrConfirmQueue.length }}
           </div>
-          <div class="stat-sub" :class="hrConfirmQueue.length ? 'negative' : ''">
+          <div class="stat-sub">
             {{ hrConfirmQueue.length ? 'требуют действия' : 'очередь пуста' }}
           </div>
         </button>
         <button type="button" class="card stat-card stat-card--interactive" title="Открыть страницу заявок" @click="goApprovals">
-          <div class="stat-top">
-            <span class="stat-label">Заявок в апреле</span>
-            <ClipboardList :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Заявок в апреле</span>
           <div class="stat-value">14</div>
           <div class="stat-sub">5 одобрено · 2 отклонено</div>
         </button>
@@ -530,36 +489,24 @@ const recentActivity = [
 
       <div class="stats-grid">
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Всего сотрудников</span>
-            <Users :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Всего сотрудников</span>
           <div class="stat-value">248</div>
-          <div class="stat-sub positive">+3 в этом месяце</div>
+          <div class="stat-sub">+3 в этом месяце</div>
         </div>
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">В отпуске сейчас</span>
-            <Palmtree :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">В отпуске сейчас</span>
           <div class="stat-value">7</div>
           <div class="stat-sub">2.8% от штата</div>
         </div>
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Ожидают действий</span>
-            <Bell :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Ожидают действий</span>
           <div class="stat-value orange">3</div>
-          <div class="stat-sub negative">согласования/приказы</div>
+          <div class="stat-sub">согласования/приказы</div>
         </div>
         <div class="card stat-card">
-          <div class="stat-top">
-            <span class="stat-label">Посещаемость</span>
-            <TrendingUp :size="15" stroke-width="1.5" class="stat-icon" />
-          </div>
+          <span class="stat-label">Посещаемость</span>
           <div class="stat-value">94.3%</div>
-          <div class="stat-sub positive">+1.2% к прошлому мес.</div>
+          <div class="stat-sub">+1.2% к прошлому мес.</div>
         </div>
       </div>
 
@@ -689,11 +636,14 @@ const recentActivity = [
 .dash-hr-stats .stat-card--interactive {
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  font: inherit;
+  color: inherit;
+  appearance: none;
+  width: 100%;
+  transition: border-color 0.12s ease;
 }
 .dash-hr-stats .stat-card--interactive:hover {
-  border-color: #d0d0d0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-color: #ddd;
 }
 
 .card {
@@ -703,24 +653,51 @@ const recentActivity = [
   padding: 18px 20px;
 }
 
-/* ── Stat cards ── */
+/* ── Stat cards (minimal) ── */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: 10px;
 }
-.stat-card         { display: flex; flex-direction: column; gap: 6px; }
-.stat-top          { display: flex; align-items: center; justify-content: space-between; }
-.stat-label        { font-size: 12px; color: #999; font-weight: 450; }
-.stat-icon         { color: #ccc; }
-.stat-value        { font-size: 24px; font-weight: 600; color: #1a1a1a; letter-spacing: -0.5px; line-height: 1; }
-.stat-value.green  { color: #4caf7d; }
-.stat-value.muted  { color: #c0c0c0; }
-.stat-value.orange { color: #e8a020; }
-.stat-sub          { font-size: 11.5px; color: #aaa; }
-.stat-sub.positive { color: #4caf7d; }
-.stat-sub.negative { color: #e8a020; }
-.stat-alert        { border-color: #fde8c0; background: #fffdf6; }
+.stats-grid > .card {
+  padding: 12px 14px;
+  border-radius: 8px;
+  border-color: #ebebeb;
+  background: #fff;
+}
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.stat-label {
+  font-size: 11px;
+  color: #8a8a8a;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+.stat-value {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1a1a1a;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.stat-value.green  { color: #3d9a6e; }
+.stat-value.muted  { color: #b8b8b8; }
+.stat-value.orange { color: #c98a18; }
+.stat-sub {
+  font-size: 11px;
+  color: #9a9a9a;
+  line-height: 1.35;
+}
+.stat-alert {
+  border-color: #ebebeb;
+  background: #fff;
+  box-shadow: inset 3px 0 0 0 #e8c96a;
+}
 
 /* ── Two-column layout ── */
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }

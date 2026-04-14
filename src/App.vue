@@ -6,6 +6,7 @@ import {
   LayoutDashboard, Palmtree, MoreHorizontal, AlignLeft,
   UserCircle, CalendarCheck, Banknote,
   Users, FileBarChart2, Building2, UserCog, Settings, ListChecks, UserPlus,
+  ListTodo,
 } from 'lucide-vue-next'
 import { UiIconButton } from '@/components/ui'
 
@@ -39,6 +40,9 @@ provide('sessionUser', sessionUser)
 const route  = useRoute()
 const router = useRouter()
 
+const isTasksFullPage = computed(() => route.meta.tasksFullPage === true)
+const isFullWidthPage = computed(() => route.meta.fullWidth === true)
+
 /** Сброс горизонтального скролла области контента (иначе после широких страниц контент «уезжает» вправо). */
 const mainScrollRef = ref(null)
 router.afterEach(() => {
@@ -55,6 +59,7 @@ const navByRole = {
   staff: {
     general: [
       { name: 'Главная',         to: '/',              icon: LayoutDashboard },
+      { name: 'Задачи',          to: '/tasks',         icon: ListTodo        },
       { name: 'Мой профиль',     to: '/profile',       icon: UserCircle      },
       { name: 'Отпуска',         to: '/vacations',     icon: Palmtree        },
       { name: 'Посещаемость',    to: '/attendance',    icon: CalendarCheck   },
@@ -65,6 +70,7 @@ const navByRole = {
   manager: {
     general: [
       { name: 'Главная',         to: '/',                      icon: LayoutDashboard },
+      { name: 'Задачи',          to: '/tasks',                 icon: ListTodo        },
       { name: 'Мой профиль',     to: '/profile',               icon: UserCircle      },
       { name: 'Отпуска',         to: '/vacations',             icon: Palmtree        },
       { name: 'Посещаемость',    to: '/attendance',            icon: CalendarCheck   },
@@ -77,6 +83,7 @@ const navByRole = {
   hr: {
     general: [
       { name: 'Главная',         to: '/',                      icon: LayoutDashboard },
+      { name: 'Задачи',          to: '/tasks',                 icon: ListTodo        },
       { name: 'Мой профиль',     to: '/profile',               icon: UserCircle      },
       { name: 'Отпуска',         to: '/vacations',             icon: Palmtree        },
       { name: 'Посещаемость',    to: '/attendance',            icon: CalendarCheck   },
@@ -92,6 +99,7 @@ const navByRole = {
   admin: {
     general: [
       { name: 'Главная',         to: '/',                      icon: LayoutDashboard },
+      { name: 'Задачи',          to: '/tasks',                 icon: ListTodo        },
       { name: 'Мой профиль',     to: '/profile',               icon: UserCircle      },
       { name: 'Отпуска',         to: '/vacations',             icon: Palmtree        },
       { name: 'Посещаемость',    to: '/attendance',            icon: CalendarCheck   },
@@ -334,7 +342,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
       </header>
 
       <div ref="mainScrollRef" class="main-scroll">
-        <div class="page-header">
+        <div v-if="!isTasksFullPage" class="page-header">
           <div class="page-header-inner" id="page-header-inner">
             <div class="page-header-left">
               <nav class="breadcrumb">
@@ -351,8 +359,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
           </div>
         </div>
 
-        <div class="main-content">
-          <div class="page-wrapper">
+        <div class="main-content" :class="{ 'main-content--tasks-full': isTasksFullPage }">
+          <div class="page-wrapper" :class="{ 'page-wrapper--full': isFullWidthPage }">
             <RouterView />
           </div>
         </div>
@@ -610,6 +618,14 @@ body {
   width: 100%;
   max-width: 1080px;
   min-width: 0;
+}
+
+.page-wrapper--full {
+  max-width: none;
+}
+
+.main-content--tasks-full {
+  padding-top: 0;
 }
 
 /* ── Notifications ── */

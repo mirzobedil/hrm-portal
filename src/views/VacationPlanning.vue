@@ -2,14 +2,14 @@
 import { ref, computed } from 'vue'
 import {
   Check, X, AlertTriangle, GanttChart, List,
-  Users,
 } from 'lucide-vue-next'
 import StatusBadge from '@/components/StatusBadge.vue'
 import {
   UiSelect, UiTextarea, UiButton, UiIconButton,
   UiSwitcher, UiSwitcherTab, UiDateRangeInput,
 } from '@/components/ui'
-import { STATUS_LABELS as statusLabel } from '@/constants/vacation'
+import { STATUS_LABELS as statusLabel, DEPT_VACATION_COVERAGE_LIMIT_PERCENT } from '@/constants/vacation'
+import { peakDeptLoadFromPlanning } from '@/utils/vacationDepartmentLoad'
 
 // ── Static employee directory ─────────────────────────────────────────────
 const EMPLOYEES = [
@@ -25,7 +25,8 @@ const EMPLOYEES = [
 ]
 
 const vacations = ref([
-  { id: 1,  empId: 1, from: '2025-04-10', to: '2025-04-18', days: 9,  type: 'Ежегодный',    status: 'approved' },
+  /** Два фрагмента одного годового плана (один статус) — в таблице одна строка, в деталях части */
+  { id: 1,  empId: 1, from: '2025-04-10', to: '2025-04-18', days: 9,  type: 'Ежегодный',    status: 'planned'  },
   { id: 2,  empId: 2, from: '2025-04-14', to: '2025-04-22', days: 9,  type: 'Ежегодный',    status: 'planned'  },
   { id: 3,  empId: 3, from: '2025-04-22', to: '2025-04-26', days: 5,  type: 'Ежегодный',    status: 'approved' },
   { id: 4,  empId: 4, from: '2025-05-01', to: '2025-05-12', days: 12, type: 'Ежегодный',    status: 'planned'  },
@@ -45,6 +46,79 @@ function fmtDate(iso) {
 function hasOverlap(a1, a2, b1, b2) {
   return a1 <= b2 && a2 >= b1
 }
+
+/** Части ежегодного плана одного сотрудника за год (несколько строк в данных). */
+function annualPlanSegmentsSameStatus(v) {
+  if (!v || v.type !== 'Ежегодный') return []
+  const year = v.from.slice(0, 4)
+  const ys = `${year}-01-01`
+  const ye = `${year}-12-31`
+  return vacations.value
+    .filter(
+      x =>
+        x.empId === v.empId &&
+        x.type === 'Ежегодный' &&
+        x.status === v.status &&
+        x.from <= ye &&
+        x.to >= ys,
+    )
+    .sort((a, b) => a.from.localeCompare(b.from))
+}
+
+function combinedDateRangeFromSegments(segments) {
+  if (!segments.length) return null
+  return {
+    from: segments.reduce((m, r) => (r.from < m ? r.from : m), segments[0].from),
+    to: segments.reduce((m, r) => (r.to > m ? r.to : m), segments[0].to),
+  }
+}
+
+/**
+ * Одна строка таблицы планирования = один отпуск; несколько частей ежегодного — с partCount и _segments.
+ */
+function mergeAnnualPlanTableRows(rowsWithEmp) {
+  const seenIds = new Set()
+  const groups = new Map()
+  const order = []
+  for (const r of rowsWithEmp) {
+    if (seenIds.has(r.id)) continue
+    seenIds.add(r.id)
+    const key =
+      r.type === 'Ежегодный'
+        ? `${r.empId}\u0000${r.from.slice(0, 4)}\u0000${r.status}`
+        : `id:${r.id}`
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      order.push(key)
+    }
+    groups.get(key).push(r)
+  }
+  const out = []
+  for (const key of order) {
+    const group = groups.get(key)
+    const sorted = [...group].sort((a, b) => a.from.localeCompare(b.from))
+    const first = sorted[0]
+    const emp = first.emp
+    if (sorted.length === 1 || first.type !== 'Ежегодный') {
+      out.push({ ...first, partCount: 1 })
+      continue
+    }
+    const range = combinedDateRangeFromSegments(sorted)
+    const totalDays = sorted.reduce((s, x) => s + x.days, 0)
+    out.push({
+      ...first,
+      id: `grp-${first.id}`,
+      from: range.from,
+      to: range.to,
+      days: totalDays,
+      partCount: sorted.length,
+      _segments: sorted,
+      emp,
+    })
+  }
+  return out
+}
+
 function initials(name) {
   return name.split(' ').slice(0, 2).map(n => n[0]).join('')
 }
@@ -228,6 +302,34 @@ const risks = computed(() => {
   return result
 })
 
+/** HR: пиковая доля штата отдела в отпуске в один день (год плана) выше лимита — предупреждение */
+const deptLoadHrWarnings = computed(() => {
+  const limit = DEPT_VACATION_COVERAGE_LIMIT_PERCENT
+  const includeStatus = s => s === 'approved' || s === 'planned'
+  const out = []
+  for (const dept of DEPTS) {
+    const { maxPercent, worstDay, maxConcurrent } = peakDeptLoadFromPlanning({
+      employees: EMPLOYEES,
+      vacations: vacations.value,
+      department: dept,
+      rangeFrom: tlStartDate.value,
+      rangeTo: tlEndDate.value,
+      includeStatus,
+    })
+    if (maxPercent <= limit) continue
+    const headcount = EMPLOYEES.filter(e => e.dept === dept).length
+    out.push({
+      dept,
+      maxPercent: Math.round(maxPercent * 10) / 10,
+      worstDay,
+      maxConcurrent,
+      headcount,
+      limit,
+    })
+  }
+  return out
+})
+
 // ── Simultaneous on vacation count per day ────────────────────────────────
 // For each row in the gantt, count how many from same dept are also on vac
 function deptCountAtDate(empId, dateStr) {
@@ -301,47 +403,118 @@ const planRejectInput = ref(false)
 const planRejectNote  = ref('')
 
 function openPlanDrawer(v) {
-  const emp = EMPLOYEES.find(e => e.id === (v.empId ?? v.emp?.id ?? v.id))
-  planDrawerItem.value  = emp ? { ...v, emp } : v
+  const raw = v._segments?.[0] ?? v
+  const emp = EMPLOYEES.find(e => e.id === (raw.empId ?? v.empId))
+  planDrawerItem.value = emp ? { ...raw, emp } : { ...raw }
   planRejectInput.value = false
-  planRejectNote.value  = ''
-  showPlanDrawer.value  = true
+  planRejectNote.value = ''
+  showPlanDrawer.value = true
 }
+
+const planDrawerAnnualSegments = computed(() =>
+  planDrawerItem.value ? annualPlanSegmentsSameStatus(planDrawerItem.value) : [],
+)
+
+const planDrawerHeadRange = computed(() => {
+  const segs = planDrawerAnnualSegments.value
+  if (!planDrawerItem.value) return null
+  if (segs.length <= 1) {
+    return {
+      from: planDrawerItem.value.from,
+      to: planDrawerItem.value.to,
+      days: planDrawerItem.value.days,
+    }
+  }
+  const r = combinedDateRangeFromSegments(segs)
+  const days = segs.reduce((s, x) => s + x.days, 0)
+  return { ...r, days }
+})
 
 const planDrawerConflicts = computed(() => {
   if (!planDrawerItem.value) return []
   const item = planDrawerItem.value
+  const segs = planDrawerAnnualSegments.value
+  const range =
+    segs.length > 1 ? combinedDateRangeFromSegments(segs) : { from: item.from, to: item.to }
+  const segmentIds = new Set(segs.map(s => s.id))
   return vacations.value
     .filter(v =>
-      v.id !== item.id &&
+      !segmentIds.has(v.id) &&
       (v.status === 'approved' || v.status === 'planned') &&
-      hasOverlap(v.from, v.to, item.from, item.to)
+      hasOverlap(v.from, v.to, range.from, range.to)
     )
     .map(v => ({ ...v, emp: EMPLOYEES.find(e => e.id === v.empId) }))
     .filter(v => v.emp)
 })
 
 function doPlanApprove() {
-  const v = vacations.value.find(v => v.id === planDrawerItem.value.id)
-  if (v) v.status = 'approved'
+  const item = planDrawerItem.value
+  if (!item) return
+  const segs = annualPlanSegmentsSameStatus(item)
+  const targets = segs.length ? segs : [item]
+  for (const t of targets) {
+    const v = vacations.value.find(x => x.id === t.id)
+    if (v) v.status = 'approved'
+  }
   showPlanDrawer.value = false
 }
 function doPlanReject() {
-  const v = vacations.value.find(v => v.id === planDrawerItem.value.id)
-  if (v) { v.status = 'rejected'; v.rejectNote = planRejectNote.value }
+  const item = planDrawerItem.value
+  if (!item) return
+  const segs = annualPlanSegmentsSameStatus(item)
+  const targets = segs.length ? segs : [item]
+  for (const t of targets) {
+    const v = vacations.value.find(x => x.id === t.id)
+    if (v) {
+      v.status = 'rejected'
+      v.rejectNote = planRejectNote.value
+    }
+  }
   showPlanDrawer.value = false
 }
 
+function planningRowHasConflict(row) {
+  if (row._segments?.length)
+    return row._segments.some(s => conflictingVacIds.value.has(s.id))
+  return conflictingVacIds.value.has(row.id)
+}
+
 // ── Table rows ────────────────────────────────────────────────────────────
-const tableRows = computed(() =>
+const tableRowsFlat = computed(() =>
   filteredVacations.value
-    .filter(v => filterDept.value
-      ? EMPLOYEES.find(e => e.id === v.empId)?.dept === filterDept.value
-      : true
+    .filter(v =>
+      filterDept.value
+        ? EMPLOYEES.find(e => e.id === v.empId)?.dept === filterDept.value
+        : true,
     )
     .map(v => ({ ...v, emp: EMPLOYEES.find(e => e.id === v.empId) }))
-    .filter(v => v.emp)
+    .filter(v => v.emp),
 )
+
+const tableRowsExpanded = computed(() => {
+  const base = tableRowsFlat.value
+  const idSet = new Set()
+  for (const r of base) {
+    idSet.add(r.id)
+    if (r.type === 'Ежегодный') {
+      for (const s of annualPlanSegmentsSameStatus(r)) idSet.add(s.id)
+    }
+  }
+  return filteredVacations.value
+    .filter(v => {
+      if (!idSet.has(v.id)) return false
+      if (
+        filterDept.value &&
+        EMPLOYEES.find(e => e.id === v.empId)?.dept !== filterDept.value
+      )
+        return false
+      return true
+    })
+    .map(v => ({ ...v, emp: EMPLOYEES.find(e => e.id === v.empId) }))
+    .filter(v => v.emp)
+})
+
+const tableRows = computed(() => mergeAnnualPlanTableRows(tableRowsExpanded.value))
 </script>
 
 <template>
@@ -350,10 +523,7 @@ const tableRows = computed(() =>
     <!-- ── Сводка плана: запланировали / всего + согласование ─────────── -->
     <div class="card plan-summary-card">
       <div class="plan-summary-main">
-        <div class="plan-summary-icon-wrap" aria-hidden="true">
-          <Users :size="18" stroke-width="1.5" class="plan-summary-icon" />
-        </div>
-        <div class="plan-summary-text">
+        <div class="plan-summary-stat">
           <div class="plan-summary-label">Годовой план отпусков</div>
           <div class="plan-summary-value-row">
             <span class="plan-summary-nums">
@@ -363,15 +533,17 @@ const tableRows = computed(() =>
             </span>
             <span class="plan-summary-hint">сотрудников с запланированным отпуском</span>
           </div>
-          <div
-            class="plan-summary-conflict-row"
-            :class="{ 'plan-summary-conflict-row--ok': conflictingVacationCount === 0 }"
-          >
-            <AlertTriangle :size="14" stroke-width="2" class="plan-summary-conflict-ic" aria-hidden="true" />
-            <span class="plan-summary-conflict-label">Конфликтов</span>
-            <span class="plan-summary-conflict-num">{{ conflictingVacationCount }}</span>
-            <span class="plan-summary-conflict-hint">заявок с пересечением в отделе</span>
-          </div>
+        </div>
+        <div class="plan-summary-meta">
+          <span class="plan-summary-meta-label">Конфликтов</span>
+          <span
+            class="plan-summary-meta-num"
+            :class="{
+              'plan-summary-meta-num--ok': conflictingVacationCount === 0,
+              'plan-summary-meta-num--warn': conflictingVacationCount > 0,
+            }"
+          >{{ conflictingVacationCount }}</span>
+          <span class="plan-summary-meta-hint">заявок с пересечением в отделе</span>
         </div>
       </div>
       <UiButton variant="primary" class="plan-summary-btn" @click="approveAllPlanned">
@@ -383,8 +555,31 @@ const tableRows = computed(() =>
     <!-- ── Risk alerts ────────────────────────────────────────────────── -->
     <div v-if="risks.length" class="risk-alerts">
       <div v-for="r in risks" :key="r.dept" class="risk-alert">
-        <AlertTriangle :size="13" stroke-width="2" />
-        <span><strong>{{ r.dept }}</strong> — одновременный отпуск: {{ r.overlapping.join(', ') }}</span>
+        <span class="risk-alert-icon" aria-hidden="true">
+          <AlertTriangle :size="14" stroke-width="2" />
+        </span>
+        <span class="risk-alert-text">
+          <strong>{{ r.dept }}</strong>
+          <span class="risk-alert-dash"> — </span>
+          одновременный отпуск: {{ r.overlapping.join(', ') }}
+        </span>
+      </div>
+    </div>
+
+    <div v-if="deptLoadHrWarnings.length" class="risk-alerts risk-alerts--dept-load">
+      <div v-for="w in deptLoadHrWarnings" :key="`${w.dept}-load`" class="risk-alert risk-alert--dept-load">
+        <span class="risk-alert-icon" aria-hidden="true">
+          <AlertTriangle :size="14" stroke-width="2" />
+        </span>
+        <span class="risk-alert-text">
+          <strong>{{ w.dept }}</strong>
+          <span class="risk-alert-dash"> — </span>
+          до {{ w.maxPercent }}% штата в отпуске в один день (лимит {{ w.limit }}%)
+          <template v-if="w.worstDay">
+            <span class="risk-alert-dash"> · </span>
+            напр. {{ fmtDate(w.worstDay) }} — {{ w.maxConcurrent }}/{{ w.headcount }} чел.
+          </template>
+        </span>
       </div>
     </div>
 
@@ -419,6 +614,7 @@ const tableRows = computed(() =>
             <th>С</th>
             <th>По</th>
             <th class="align-right">Дней</th>
+            <th class="align-center col-parts">Частей</th>
             <th class="align-right">Статус</th>
           </tr>
         </thead>
@@ -427,7 +623,7 @@ const tableRows = computed(() =>
             <td class="col-name">
               <div class="name-cell">
                 {{ row.emp.name }}
-                <AlertTriangle v-if="conflictingVacIds.has(row.id)" :size="11" stroke-width="2.2" class="conflict-icon" title="Пересечение с другим отпуском" />
+                <AlertTriangle v-if="planningRowHasConflict(row)" :size="11" stroke-width="2.2" class="conflict-icon" title="Пересечение с другим отпуском" />
               </div>
             </td>
             <td class="col-dept">
@@ -436,9 +632,10 @@ const tableRows = computed(() =>
             </td>
             <td class="col-pos">{{ row.emp.position }}</td>
             <td class="col-muted">{{ row.type }}</td>
-            <td class="col-date">{{ fmtDate(row.from) }}</td>
-            <td class="col-date">{{ fmtDate(row.to) }}</td>
+            <td class="col-date col-muted">{{ row.partCount > 1 ? '—' : fmtDate(row.from) }}</td>
+            <td class="col-date col-muted">{{ row.partCount > 1 ? '—' : fmtDate(row.to) }}</td>
             <td class="align-right col-muted">{{ row.days }}</td>
+            <td class="align-center col-muted col-parts">{{ row.partCount }}</td>
             <td class="align-right">
               <StatusBadge :status="row.status" :label="statusLabel[row.status]" />
             </td>
@@ -578,8 +775,7 @@ const tableRows = computed(() =>
                 </div>
               </div>
 
-              <!-- Details -->
-              <div class="drawer-details">
+              <div v-if="planDrawerAnnualSegments.length <= 1" class="drawer-details">
                 <div class="drawer-detail">
                   <div class="drawer-detail-label">С</div>
                   <div class="drawer-detail-val">{{ fmtDate(planDrawerItem.from) }}</div>
@@ -596,6 +792,33 @@ const tableRows = computed(() =>
                   <div class="drawer-detail-label">Тип</div>
                   <div class="drawer-detail-val">{{ planDrawerItem.type }}</div>
                 </div>
+              </div>
+              <div v-else class="drawer-details drawer-details--compact">
+                <div class="drawer-detail">
+                  <div class="drawer-detail-label">Тип</div>
+                  <div class="drawer-detail-val">{{ planDrawerItem.type }}</div>
+                </div>
+                <div class="drawer-detail">
+                  <div class="drawer-detail-label">Всего дней</div>
+                  <div class="drawer-detail-val">{{ planDrawerHeadRange.days }}</div>
+                </div>
+              </div>
+
+              <div
+                v-if="planDrawerAnnualSegments.length > 1"
+                class="vp-drawer-plan-parts"
+              >
+                <div class="vp-drawer-plan-parts-title">Части плана</div>
+                <ul class="vp-drawer-plan-parts-list" role="list">
+                  <li
+                    v-for="seg in planDrawerAnnualSegments"
+                    :key="seg.id"
+                    class="vp-drawer-plan-part"
+                  >
+                    <span class="vp-drawer-plan-part-dates">{{ fmtDate(seg.from) }} — {{ fmtDate(seg.to) }}</span>
+                    <span class="vp-drawer-plan-part-days">{{ seg.days }} дн.</span>
+                  </li>
+                </ul>
               </div>
 
               <!-- Conflict warning -->
@@ -654,113 +877,137 @@ const tableRows = computed(() =>
   border-radius: 10px;
 }
 
-/* ── Сводка плана (одна карточка) ── */
+/* ── Сводка плана ── */
 .plan-summary-card {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 16px 18px;
+  padding: 14px 16px;
+  border-color: #e8e8e8;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 .plan-summary-main {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  flex-direction: column;
+  gap: 0;
   min-width: 0;
   flex: 1;
 }
-.plan-summary-icon-wrap {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: #f4f6fb;
+.plan-summary-stat {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 6px;
 }
-.plan-summary-icon { color: #5b8ef0; }
-.plan-summary-text { min-width: 0; }
 .plan-summary-label {
-  font-size: 12px;
-  color: #999;
+  font-size: 11px;
+  color: #888;
   font-weight: 500;
-  margin-bottom: 6px;
-  letter-spacing: -0.2px;
+  letter-spacing: 0.01em;
 }
 .plan-summary-value-row {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px 10px;
+  gap: 8px 12px;
 }
 .plan-summary-nums {
   font-size: 22px;
   font-weight: 600;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.03em;
   color: #1a1a1a;
-  line-height: 1;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
-.plan-summary-num { color: #5b8ef0; }
-.plan-summary-sep { color: #ccc; font-weight: 500; margin: 0 2px; }
-.plan-summary-den { color: #888; font-weight: 600; }
+.plan-summary-num { color: #1a1a1a; }
+.plan-summary-sep { color: #d4d4d4; font-weight: 500; margin: 0 2px; }
+.plan-summary-den { color: #9a9a9a; font-weight: 500; font-variant-numeric: tabular-nums; }
 .plan-summary-hint {
-  font-size: 13px;
-  color: #777;
-  line-height: 1.35;
+  font-size: 12px;
+  color: #888;
+  line-height: 1.4;
   max-width: 420px;
 }
-.plan-summary-conflict-row {
+.plan-summary-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 8px;
-  margin-top: 10px;
-  padding-top: 10px;
+  gap: 6px 10px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid #f0f0f0;
-  font-size: 12.5px;
-}
-.plan-summary-conflict-ic {
-  color: #e8a020;
-  flex-shrink: 0;
-}
-.plan-summary-conflict-row--ok .plan-summary-conflict-ic {
-  color: #9ccc9c;
-}
-.plan-summary-conflict-label {
+  font-size: 11px;
   color: #888;
-  font-weight: 500;
 }
-.plan-summary-conflict-num {
-  font-weight: 700;
-  font-size: 15px;
-  color: #c47a00;
-  min-width: 1.25em;
+.plan-summary-meta-label { font-weight: 500; color: #737373; }
+.plan-summary-meta-num {
+  font-weight: 600;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  min-width: 1ch;
 }
-.plan-summary-conflict-row--ok .plan-summary-conflict-num {
-  color: #4caf7d;
+.plan-summary-meta-num--ok { color: #2f8f5f; }
+.plan-summary-meta-num--warn { color: #b87a0a; }
+.plan-summary-meta-hint { color: #a3a3a3; }
+.plan-summary-btn {
+  flex-shrink: 0;
+  align-self: center;
 }
-.plan-summary-conflict-hint {
-  color: #aaa;
-  font-size: 12px;
+
+@media (max-width: 640px) {
+  .plan-summary-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .plan-summary-btn {
+    align-self: stretch;
+    justify-content: center;
+  }
 }
-.plan-summary-btn { flex-shrink: 0; }
 
 /* ── Risk alerts ── */
-.risk-alerts { display: flex; flex-direction: column; gap: 6px; }
-.risk-alert  {
+.risk-alerts { display: flex; flex-direction: column; gap: 8px; }
+.risk-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  background: #fdfaf6;
+  border: 1px solid #f0e6d8;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7a5a20;
+}
+.risk-alert-icon {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  background: #fff9f0;
-  border: 1px solid #fde8c0;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
   border-radius: 8px;
-  font-size: 12.5px;
-  color: #9a6400;
+  background: rgba(232, 160, 32, 0.12);
+  color: #c98a18;
 }
-.risk-alert svg { color: #e8a020; flex-shrink: 0; }
+.risk-alert-text { min-width: 0; }
+.risk-alert-text strong { color: #5c4518; font-weight: 600; }
+.risk-alert-dash { font-weight: 400; color: #a89880; }
+
+.risk-alerts--dept-load { margin-top: 4px; }
+.risk-alert--dept-load {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+.risk-alert--dept-load .risk-alert-icon {
+  background: rgba(217, 119, 6, 0.12);
+  color: #d97706;
+}
+.risk-alert--dept-load .risk-alert-text strong { color: #78350f; }
 
 /* ── Toolbar ── */
 .toolbar       { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -1037,7 +1284,10 @@ const tableRows = computed(() =>
 .data-table tbody tr:hover { background: #fafafa; }
 .data-table td { padding: 11px 16px; color: #444; }
 .align-right { text-align: right; }
+.align-center { text-align: center; }
 .data-table th.align-right { text-align: right; }
+.data-table th.align-center { text-align: center; }
+.col-parts { width: 56px; }
 
 .col-name { color: #222; font-weight: 450; font-size: 12.5px; white-space: nowrap; }
 .col-dept { display: flex; flex-direction: column; gap: 2px; }
@@ -1131,6 +1381,7 @@ const tableRows = computed(() =>
   border: 1px solid #f0f0f0;
   border-radius: 8px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 .drawer-detail {
   background: #fff;
@@ -1138,9 +1389,51 @@ const tableRows = computed(() =>
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0;
 }
 .drawer-detail-label { font-size: 11px; color: #bbb; font-weight: 500; }
 .drawer-detail-val   { font-size: 13px; color: #1a1a1a; font-weight: 450; }
+
+/* Два поля: flex надёжнее grid внутри flex-колонки drawer-body (иначе высота ~0 и клип по overflow) */
+.drawer-details.drawer-details--compact {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+.drawer-details.drawer-details--compact .drawer-detail {
+  flex: 1 1 0;
+}
+
+.vp-drawer-plan-parts {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #eee;
+}
+.vp-drawer-plan-parts-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #999;
+  margin-bottom: 8px;
+}
+.vp-drawer-plan-parts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.vp-drawer-plan-part {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+}
+.vp-drawer-plan-part:last-child { border-bottom: none; padding-bottom: 0; }
+.vp-drawer-plan-part-dates { color: #333; font-weight: 500; }
+.vp-drawer-plan-part-days { color: #888; font-size: 12.5px; white-space: nowrap; }
 
 /* ── Conflict section ── */
 .drawer-conflicts {

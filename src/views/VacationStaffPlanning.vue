@@ -1,14 +1,15 @@
 <script setup>
 import { ref, computed, watch, inject } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronLeft, ChevronRight, Info, X, Check, Plus, RotateCcw } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Info, X, Check, Plus, RotateCcw, AlertTriangle } from 'lucide-vue-next'
 import { UiButton, UiIconButton } from '@/components/ui'
 import { STATUS_LABELS as statusLabel, VACATION_PLANNING_BLOCKING_STATUSES } from '@/constants/vacation'
 import { EMPLOYEE_DATA } from '@/data/vacationRequests'
 import { useVacationRequests } from '@/composables/useVacationRequests'
 import { vacationPlanFlash } from '@/composables/useVacationPlanFlash'
 
-const FIRST_SEGMENT_MIN_DAYS = 14
+/** Минимальная длительность календарного периода для хотя бы одной из частей плана (не обязательно первой). */
+const ONE_PART_MIN_CALENDAR_DAYS = 14
 const SEGMENT_COLORS = ['#5b8ef0', '#7c5cc4', '#e8a020', '#4caf7d', '#e05a5a', '#2e9dc8']
 
 const router = useRouter()
@@ -111,7 +112,34 @@ watch(calYear, () => { syncSegmentsFromStore(); rangeAnchor.value = null; hoverC
 
 const allocatedDays = computed(() => segments.value.reduce((s, seg) => s + seg.days, 0))
 const remainingDays = computed(() => Math.max(0, totalAnnualDays.value - allocatedDays.value))
-const hasLongSegment = computed(() => segments.value.some(s => s.days >= FIRST_SEGMENT_MIN_DAYS))
+const hasLongSegment = computed(() => segments.value.some(s => s.days >= ONE_PART_MIN_CALENDAR_DAYS))
+
+/** Уже добавлены части, но ни одна не ≥14 дн., и дальше правило выполнить нельзя (мало остатка или всё разложено «короткими» кусками). */
+const longPartPlanStuck = computed(() => {
+  if (hasLongSegment.value) return false
+  if (allocatedDays.value === 0) return false
+  if (remainingDays.value === 0) return true
+  return remainingDays.value < ONE_PART_MIN_CALENDAR_DAYS
+})
+
+/** Пока нет части ≥14 дн.: нельзя выбрать короткий период так, что после него останется меньше 14 дн. на будущую основную часть (кроме случая, когда текущий выбор сам ≥14 дн.). */
+function canSatisfyLongPartAfterAddingDays(d) {
+  if (hasLongSegment.value) return true
+  if (d >= ONE_PART_MIN_CALENDAR_DAYS) return true
+  const rem = remainingDays.value - d
+  return rem >= ONE_PART_MIN_CALENDAR_DAYS
+}
+
+function validateInclusiveRange(from, to) {
+  if (from > to || from < yearStart.value || to > yearEnd.value) return { ok: false, reason: 'bounds' }
+  const d = inclusiveCalendarDays(from, to)
+  if (d < 1) return { ok: false, reason: 'bounds' }
+  if (d > remainingDays.value) return { ok: false, reason: 'overflow' }
+  const blocking = [...overlapBlocks.value, ...segmentBlockList()]
+  if (rangeOverlapsAnyBlock(from, to, blocking)) return { ok: false, reason: 'overlap' }
+  if (!canSatisfyLongPartAfterAddingDays(d)) return { ok: false, reason: 'longPart' }
+  return { ok: true, reason: null }
+}
 
 function segColor(i) { return SEGMENT_COLORS[i % SEGMENT_COLORS.length] }
 
@@ -124,11 +152,7 @@ function isCellOccupiedByBlocks(cell) {
 }
 
 function canAddInclusiveRange(from, to) {
-  if (from > to || from < yearStart.value || to > yearEnd.value) return false
-  const d = inclusiveCalendarDays(from, to)
-  if (d < 1 || d > remainingDays.value) return false
-  if (!hasLongSegment.value && d < FIRST_SEGMENT_MIN_DAYS) return false
-  return !rangeOverlapsAnyBlock(from, to, [...overlapBlocks.value, ...segmentBlockList()])
+  return validateInclusiveRange(from, to).ok
 }
 
 /** Preview range while hovering (anchor already set). */
@@ -140,13 +164,13 @@ const previewRange = computed(() => {
   const to = a <= b ? b : a
   if (from < yearStart.value || to > yearEnd.value) return null
   const d = inclusiveCalendarDays(from, to)
-  const valid = canAddInclusiveRange(from, to)
-  return { from, to, days: d, valid }
+  const v = validateInclusiveRange(from, to)
+  return { from, to, days: d, valid: v.ok, invalidReason: v.reason }
 })
 
 function onCellClick(cell) {
   saveError.value = ''
-  if (!cell || totalAnnualDays.value < FIRST_SEGMENT_MIN_DAYS) return
+  if (!cell || totalAnnualDays.value < ONE_PART_MIN_CALENDAR_DAYS) return
 
   if (!rangeAnchor.value) {
     if (isCellOccupiedByBlocks(cell)) return
@@ -159,12 +183,16 @@ function onCellClick(cell) {
   rangeAnchor.value = null
   hoverCell.value = null
 
-  if (!canAddInclusiveRange(from, to)) {
-    const d = inclusiveCalendarDays(from, to)
-    const blocking = [...overlapBlocks.value, ...segmentBlockList()]
-    if (rangeOverlapsAnyBlock(from, to, blocking)) saveError.value = 'Период пересекается с другой частью или заявкой.'
-    else if (d > remainingDays.value) saveError.value = `Не хватает дней (осталось ${remainingDays.value}).`
-    else if (!hasLongSegment.value && d < FIRST_SEGMENT_MIN_DAYS) saveError.value = `Одна из частей должна быть не менее ${FIRST_SEGMENT_MIN_DAYS} дней.`
+  const addCheck = validateInclusiveRange(from, to)
+  if (!addCheck.ok) {
+    const v = addCheck
+    if (v.reason === 'overlap') saveError.value = 'Период пересекается с другой частью или заявкой.'
+    else if (v.reason === 'overflow') saveError.value = `Не хватает дней (осталось ${remainingDays.value}).`
+    else if (v.reason === 'longPart') {
+      saveError.value =
+        `После этой части для основного отпуска (≥${ONE_PART_MIN_CALENDAR_DAYS} дн.) не останется достаточно дней. ` +
+        'Сократите период или удалите часть и перераспределите.'
+    }
     else saveError.value = 'Нельзя добавить такой период.'
     return
   }
@@ -223,7 +251,7 @@ function cellStyle(cell) {
 }
 
 function cellDisabled(cell) {
-  if (!cell || totalAnnualDays.value < FIRST_SEGMENT_MIN_DAYS) return true
+  if (!cell || totalAnnualDays.value < ONE_PART_MIN_CALENDAR_DAYS) return true
   if (remainingDays.value === 0 && !rangeAnchor.value && segmentIndexForCell(cell) < 0) return true
   return false
 }
@@ -242,8 +270,15 @@ function cellTitle(cell) {
 function savePlan() {
   saveError.value = ''
   if (segments.value.length === 0) { saveError.value = 'Добавьте хотя бы одну часть.'; return }
+  if (longPartPlanStuck.value) {
+    saveError.value =
+      remainingDays.value === 0
+        ? `Ни одна часть не длится ≥${ONE_PART_MIN_CALENDAR_DAYS} дн. Удалите части и перераспределите.`
+        : `Осталось ${remainingDays.value} дн. — этого мало, чтобы выделить часть ≥${ONE_PART_MIN_CALENDAR_DAYS} дн. Удалите или измените части.`
+    return
+  }
   if (remainingDays.value !== 0) { saveError.value = `Осталось ${remainingDays.value} нераспределённых дней.`; return }
-  if (!hasLongSegment.value) { saveError.value = `Хотя бы одна часть должна быть не менее ${FIRST_SEGMENT_MIN_DAYS} дней.`; return }
+  if (!hasLongSegment.value) { saveError.value = `Хотя бы одна часть должна быть не менее ${ONE_PART_MIN_CALENDAR_DAYS} дней.`; return }
 
   const y = String(calYear.value)
   allRequests.value = allRequests.value.filter(r => {
@@ -267,11 +302,11 @@ function savePlan() {
     </RouterLink>
 
     <!-- Not enough days -->
-    <div v-if="totalAnnualDays < FIRST_SEGMENT_MIN_DAYS" class="vsp-empty-card" role="status">
+    <div v-if="totalAnnualDays < ONE_PART_MIN_CALENDAR_DAYS" class="vsp-empty-card" role="status">
       <Info :size="18" stroke-width="1.75" class="vsp-empty-ic" />
       <p v-if="totalAnnualDays < 1">Нет доступных дней для планирования.</p>
       <p v-else>
-        Недостаточно дней: первая часть ежегодного отпуска — не менее {{ FIRST_SEGMENT_MIN_DAYS }} календарных дней.
+        Недостаточно дней: хотя бы одна из частей ежегодного отпуска — не менее {{ ONE_PART_MIN_CALENDAR_DAYS }} календарных дней.
       </p>
       <UiButton variant="secondary" type="button" @click="router.push({ name: 'vacations' })">К отпускам</UiButton>
     </div>
@@ -283,7 +318,7 @@ function savePlan() {
           <span class="vsp-info-alert-title">Планирование ежегодного отпуска · {{ totalAnnualDays }} дней</span>
           <span class="vsp-info-alert-text">
             Разделите отпуск на части и расставьте в календаре.
-            Одна часть — не менее <strong>{{ FIRST_SEGMENT_MIN_DAYS }}</strong> календарных дней, остальные — любого размера.
+            Хотя бы одна из частей — не менее <strong>{{ ONE_PART_MIN_CALENDAR_DAYS }}</strong> календарных дней, остальные — любого размера.
           </span>
         </div>
       </div>
@@ -333,10 +368,10 @@ function savePlan() {
         <!-- RIGHT: sidebar -->
         <div class="vsp-sidebar">
           <!-- Progress card -->
-          <div class="vsp-progress-card">
+          <div class="vsp-progress-card" :class="{ 'vsp-progress-card--stuck': longPartPlanStuck }">
             <div class="vsp-progress-title">Распределение дней</div>
             <div class="vsp-progress-bar-wrap">
-              <div class="vsp-progress-bar">
+              <div class="vsp-progress-bar" :class="{ 'vsp-progress-bar--stuck': longPartPlanStuck }">
                 <div
                   v-for="(seg, i) in segments"
                   :key="`bar-${i}`"
@@ -347,22 +382,38 @@ function savePlan() {
               </div>
               <div class="vsp-progress-labels">
                 <span>{{ allocatedDays }} из {{ totalAnnualDays }}</span>
-                <span v-if="remainingDays > 0" class="vsp-progress-remaining">осталось {{ remainingDays }}</span>
+                <span v-if="longPartPlanStuck" class="vsp-progress-stuck">
+                  <template v-if="remainingDays === 0">Все дни распределены без части ≥{{ ONE_PART_MIN_CALENDAR_DAYS }} дн.</template>
+                  <template v-else>Осталось {{ remainingDays }} дн. — мало для части ≥{{ ONE_PART_MIN_CALENDAR_DAYS }} дн.</template>
+                </span>
+                <span v-else-if="remainingDays > 0" class="vsp-progress-remaining">осталось {{ remainingDays }}</span>
                 <span v-else class="vsp-progress-done">готово</span>
               </div>
             </div>
             <div class="vsp-progress-rule">
               <Info :size="12" stroke-width="2" />
-              Первая часть — не менее {{ FIRST_SEGMENT_MIN_DAYS }} календарных дней
+              Хотя бы одна часть — не менее {{ ONE_PART_MIN_CALENDAR_DAYS }} календарных дней
             </div>
           </div>
 
           <!-- Status hint -->
-          <div class="vsp-hint" :class="{ 'vsp-hint--active': rangeAnchor }">
+          <div
+            class="vsp-hint"
+            :class="{
+              'vsp-hint--active': rangeAnchor,
+              'vsp-hint--stuck': longPartPlanStuck && !rangeAnchor,
+            }"
+          >
             <template v-if="rangeAnchor">
               <span class="vsp-hint-dot vsp-hint-dot--pulse" />
               <span>Выберите последний день</span>
               <button type="button" class="vsp-hint-cancel" @click="cancelAnchor">Отменить</button>
+            </template>
+            <template v-else-if="longPartPlanStuck">
+              <AlertTriangle :size="13" stroke-width="2" class="vsp-hint-ic vsp-hint-ic--stuck" />
+              <span>
+                Нужна часть не короче {{ ONE_PART_MIN_CALENDAR_DAYS }} дн. Сократите период в календаре или удалите часть справа.
+              </span>
             </template>
             <template v-else-if="remainingDays > 0">
               <Plus :size="13" stroke-width="2" class="vsp-hint-ic" />
@@ -380,7 +431,15 @@ function savePlan() {
               <span class="vsp-preview-dates">{{ fmtDateShort(previewRange.from) }} — {{ fmtDateShort(previewRange.to) }}</span>
               <span class="vsp-preview-days">{{ previewRange.days }} дн.</span>
               <span v-if="!previewRange.valid" class="vsp-preview-warn">
-                {{ !hasLongSegment && previewRange.days < FIRST_SEGMENT_MIN_DAYS ? `мин. ${FIRST_SEGMENT_MIN_DAYS}` : previewRange.days > remainingDays ? 'превышает остаток' : 'пересечение' }}
+                {{
+                  previewRange.invalidReason === 'overflow'
+                    ? 'превышает остаток'
+                    : previewRange.invalidReason === 'overlap'
+                      ? 'пересечение'
+                      : previewRange.invalidReason === 'longPart'
+                        ? `мало дней на часть ≥${ONE_PART_MIN_CALENDAR_DAYS}`
+                        : 'недоступно'
+                }}
               </span>
             </div>
           </Transition>
@@ -397,7 +456,7 @@ function savePlan() {
                 <div class="vsp-part-body">
                   <div class="vsp-part-head">
                     <span class="vsp-part-name">Часть {{ i + 1 }}</span>
-                    <span v-if="seg.days >= FIRST_SEGMENT_MIN_DAYS" class="vsp-part-badge">основная</span>
+                    <span v-if="seg.days >= ONE_PART_MIN_CALENDAR_DAYS" class="vsp-part-badge">основная</span>
                   </div>
                   <div class="vsp-part-meta">
                     {{ fmtDate(seg.from) }} — {{ fmtDate(seg.to) }} · {{ seg.days }} дн.
@@ -432,7 +491,7 @@ function savePlan() {
             <UiButton
               variant="primary"
               type="button"
-              :disabled="remainingDays !== 0 || segments.length === 0"
+              :disabled="remainingDays !== 0 || segments.length === 0 || longPartPlanStuck"
               @click="savePlan"
             >
               <Check :size="13" stroke-width="2" />
@@ -747,6 +806,19 @@ button.vsp-cell.vsp-cell--seg:disabled {
 }
 .vsp-progress-remaining { color: #c47a00; font-weight: 500; }
 .vsp-progress-done { color: #4caf7d; font-weight: 600; }
+.vsp-progress-stuck {
+  color: #c45c2d;
+  font-weight: 600;
+  max-width: 58%;
+  text-align: right;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+.vsp-progress-card--stuck {
+  border-color: #f0d4c4;
+  background: #fffaf7;
+}
+.vsp-progress-bar--stuck { background: #ffe8dc; }
 .vsp-progress-rule {
   display: flex;
   align-items: center;
@@ -774,6 +846,15 @@ button.vsp-cell.vsp-cell--seg:disabled {
 .vsp-hint--active {
   background: #eef3ff;
   color: #3366cc;
+}
+.vsp-hint--stuck {
+  background: #fff4ed;
+  color: #8a3d22;
+  border: 1px solid #f0d4c4;
+}
+.vsp-hint-ic--stuck {
+  color: #e07030;
+  flex-shrink: 0;
 }
 .vsp-hint-dot {
   width: 8px;

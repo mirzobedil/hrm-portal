@@ -2,6 +2,7 @@
 import { ref, inject, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import VacationPlanning from './VacationPlanning.vue'
+import VacationHrDashboard from './VacationHrDashboard.vue'
 import TeamAbsenceCalendar from '@/components/TeamAbsenceCalendar.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ActivityFeed from '@/components/ActivityFeed.vue'
@@ -16,14 +17,17 @@ import {
   VACATION_TYPES,
   STATUS_LABELS as statusLabel,
   LINE_MANAGER,
+  DEPT_VACATION_COVERAGE_LIMIT_PERCENT,
+  DEPT_LOAD_REQUEST_STATUSES,
 } from '@/constants/vacation'
+import { peakDeptLoadFromNamedRequests } from '@/utils/vacationDepartmentLoad'
 import { EMPLOYEE_DATA } from '@/data/vacationRequests'
 import { COLLEAGUES } from '@/data/colleagues'
 import { useVacationRequests } from '@/composables/useVacationRequests'
 import { vacationPlanFlash } from '@/composables/useVacationPlanFlash'
 import { VACATION_REQUEST_FLASH_TOAST_KEY } from '@/constants/vacationRequestUi'
 import {
-  Plus, Check, X, ChevronLeft, ChevronRight, Send, CheckCircle2, AlertCircle,
+  Plus, Check, X, ChevronLeft, ChevronRight, Send, CheckCircle2, AlertCircle, AlertTriangle,
   Clock, ClipboardList, ShieldCheck, Ban, CalendarDays, Minus, Users, Palmtree,
   Briefcase,
 } from 'lucide-vue-next'
@@ -40,7 +44,7 @@ const router = useRouter()
 const isPersonalVacationsRoute = computed(() => route.name === 'vacations')
 const isApprovalsRoute = computed(() => route.name === 'vacations-approvals')
 
-const activeTab = ref('requests')
+const activeTab = ref('dashboard')
 
 const isManager = computed(() => activeRole.value === 'manager')
 const isHrOrAdmin = computed(() => activeRole.value === 'hr' || activeRole.value === 'admin')
@@ -58,6 +62,13 @@ watch(
     }
   },
   { immediate: true },
+)
+
+watch(
+  () => [activeRole.value, activeTab.value],
+  ([role, tab]) => {
+    if (tab === 'dashboard' && role !== 'hr' && role !== 'admin') activeTab.value = 'requests'
+  },
 )
 
 /** Личный кабинет отпусков — от имени sessionUser (в демо совпадает с выбранной ролью в App.vue) */
@@ -99,6 +110,92 @@ function hasOverlap(a1, a2, b1, b2) {
   return a1 <= b2 && a2 >= b1
 }
 
+/**
+ * Части ежегодного плана, сохранённые отдельными строками (VacationStaffPlanning),
+ * с тем же статусом и в том же календарном году, что и у переданной заявки.
+ */
+function annualLeaveSamePlanSegments(req) {
+  if (!req || req.type !== 'Ежегодный') return []
+  const year = req.from.slice(0, 4)
+  const ys = `${year}-01-01`
+  const ye = `${year}-12-31`
+  return allRequests.value
+    .filter(
+      r =>
+        r.employee === req.employee &&
+        r.type === 'Ежегодный' &&
+        r.status === req.status &&
+        r.from <= ye &&
+        r.to >= ys,
+    )
+    .sort((a, b) => a.from.localeCompare(b.from))
+}
+
+function combinedDateRangeFromSegments(segments) {
+  if (!segments.length) return null
+  return {
+    from: segments.reduce((m, r) => (r.from < m ? r.from : m), segments[0].from),
+    to: segments.reduce((m, r) => (r.to > m ? r.to : m), segments[0].to),
+  }
+}
+
+/** Если в выборку попала часть ежегодного плана — показываем весь план (все части). */
+function expandAnnualPlanGroupsFromRows(baseRows, scopeRows) {
+  const idSet = new Set()
+  for (const r of baseRows) {
+    idSet.add(r.id)
+    if (r.type === 'Ежегодный') {
+      for (const s of annualLeaveSamePlanSegments(r)) idSet.add(s.id)
+    }
+  }
+  return scopeRows.filter(r => idSet.has(r.id))
+}
+
+/**
+ * Одна строка таблицы = один отпуск; ежегодный план из нескольких частей — с суммой дней и диапазоном.
+ * _segments — все записи группы (для согласования целиком).
+ */
+function mergeAnnualPlanGroups(rows) {
+  const seenIds = new Set()
+  const groups = new Map()
+  const order = []
+  for (const r of rows) {
+    if (seenIds.has(r.id)) continue
+    seenIds.add(r.id)
+    const key =
+      r.type === 'Ежегодный'
+        ? `${r.employee}\u0000${r.from.slice(0, 4)}\u0000${r.status}`
+        : `id:${r.id}`
+    if (!groups.has(key)) {
+      groups.set(key, [])
+      order.push(key)
+    }
+    groups.get(key).push(r)
+  }
+  const out = []
+  for (const key of order) {
+    const group = groups.get(key)
+    const sorted = [...group].sort((a, b) => a.from.localeCompare(b.from))
+    const first = sorted[0]
+    if (sorted.length === 1 || first.type !== 'Ежегодный') {
+      out.push({ ...first, partCount: 1 })
+      continue
+    }
+    const range = combinedDateRangeFromSegments(sorted)
+    const totalDays = sorted.reduce((s, x) => s + x.days, 0)
+    out.push({
+      ...first,
+      id: `grp-${first.id}`,
+      from: range.from,
+      to: range.to,
+      days: totalDays,
+      partCount: sorted.length,
+      _segments: sorted,
+    })
+  }
+  return out
+}
+
 // ── Filtered requests ────────────────────────────────────────────────────
 const requests = computed(() => {
   if (isPersonalVacationsRoute.value)
@@ -116,6 +213,7 @@ function approvalRowSearchText(r) {
     statusLabel[r.status] || r.status,
     r.from,
     r.to,
+    r.partCount > 1 ? `частей ${r.partCount}` : '',
     emp?.dept,
     emp?.subdept,
     emp?.position,
@@ -157,11 +255,12 @@ const managerTabCounts = computed(() => {
   if (!isManager.value) {
     return { all: 0, pending: 0, approved: 0, rejected: 0 }
   }
+  const merged = mergeAnnualPlanGroups(list)
   return {
-    all: list.length,
-    pending: list.filter(r => r.status === 'pending_manager' || r.status === 'pending').length,
-    approved: list.filter(r => MANAGER_TAB_APPROVED_STATUSES.includes(r.status)).length,
-    rejected: list.filter(r => r.status === 'rejected').length,
+    all: merged.length,
+    pending: merged.filter(r => r.status === 'pending_manager' || r.status === 'pending').length,
+    approved: merged.filter(r => MANAGER_TAB_APPROVED_STATUSES.includes(r.status)).length,
+    rejected: merged.filter(r => r.status === 'rejected').length,
   }
 })
 
@@ -202,17 +301,35 @@ const approvalsTableRowsFinal = computed(() => {
   return rows
 })
 
+/** Очередь согласований: полные группы ежегодного плана + объединённые строки */
+const approvalsDisplayRows = computed(() => {
+  const expanded = expandAnnualPlanGroupsFromRows(approvalsTableRowsFinal.value, requests.value)
+  return mergeAnnualPlanGroups(expanded)
+})
+
+const hrQueueApprovedByManager = computed(() =>
+  mergeAnnualPlanGroups(
+    allRequests.value.filter(r => r.status === 'approved_by_manager'),
+  ),
+)
+
+/** Личный таб «Заявки»: одна строка на отпуск, части в деталях */
+const staffRequestsDisplayRows = computed(() => mergeAnnualPlanGroups(requests.value))
+
 const summary = computed(() => {
-  const list =
+  const listRaw =
     activeRole.value === 'manager'
       ? allRequests.value.filter(r => isInManagerTeam(r.employee))
       : allRequests.value
-  const view = requests.value
+  const viewRaw = requests.value
+
+  const list = mergeAnnualPlanGroups(listRaw)
+  const view = mergeAnnualPlanGroups(viewRaw)
   const total = view.length
 
   const pendingManagerRows = list.filter(r => r.status === 'pending_manager')
-  const approvedByMgrRows  = list.filter(r => r.status === 'approved_by_manager')
-  const pendingGeneric     = list.filter(r => r.status === 'pending')
+  const approvedByMgrRows = list.filter(r => r.status === 'approved_by_manager')
+  const pendingGeneric = list.filter(r => r.status === 'pending')
 
   const approved = view.filter(r => r.status === 'approved' || r.status === 'confirmed')
   const rejected = view.filter(r => r.status === 'rejected')
@@ -224,17 +341,19 @@ const summary = computed(() => {
   const approvedPct = total ? Math.round((approved.length / total) * 100) : 0
   const rejectedPct = total ? Math.round((rejected.length / total) * 100) : 0
 
-  const pendingManagerOrg = allRequests.value.filter(r => r.status === 'pending_manager').length
-  const daysAwaitingHr = allRequests.value
+  const pendingManagerOrg = mergeAnnualPlanGroups(
+    allRequests.value.filter(r => r.status === 'pending_manager'),
+  ).length
+  const daysAwaitingHr = list
     .filter(r => r.status === 'approved_by_manager')
     .reduce((s, r) => s + r.days, 0)
 
   return {
     total,
-    pendingManager:    pendingManagerRows.length,
+    pendingManager: pendingManagerRows.length,
     approvedByManager: approvedByMgrRows.length,
-    approved:            approved.length,
-    rejected:            rejected.length,
+    approved: approved.length,
+    rejected: rejected.length,
     daysPendingManager,
     inProgress,
     approvedPct,
@@ -450,13 +569,28 @@ watch(pendingOpen, (val) => {
 }, { immediate: true })
 
 // ── HR/Admin actions ─────────────────────────────────────────────────────
+function primaryPlanRequest(row) {
+  if (row && row._segments && row._segments.length) return row._segments[0]
+  return row
+}
+
 function approve(id) {
-  const r = allRequests.value.find(r => r.id === id)
-  if (r) r.status = 'approved'
+  const r = allRequests.value.find(x => x.id === id)
+  if (!r) return
+  const targets = annualLeaveSamePlanSegments(r).length ? annualLeaveSamePlanSegments(r) : [r]
+  for (const t of targets) {
+    const row = allRequests.value.find(x => x.id === t.id)
+    if (row) row.status = 'approved'
+  }
 }
 function reject(id) {
-  const r = allRequests.value.find(r => r.id === id)
-  if (r) r.status = 'rejected'
+  const r = allRequests.value.find(x => x.id === id)
+  if (!r) return
+  const targets = annualLeaveSamePlanSegments(r).length ? annualLeaveSamePlanSegments(r) : [r]
+  for (const t of targets) {
+    const row = allRequests.value.find(x => x.id === t.id)
+    if (row) row.status = 'rejected'
+  }
 }
 
 function drawerHrApprove() {
@@ -474,8 +608,27 @@ function drawerHrReject() {
 const showDrawer = ref(false)
 const drawerReq  = ref(null)
 
+const drawerAnnualSegments = computed(() =>
+  drawerReq.value ? annualLeaveSamePlanSegments(drawerReq.value) : [],
+)
+
+const drawerHeadRange = computed(() => {
+  const segs = drawerAnnualSegments.value
+  if (!drawerReq.value) return null
+  if (segs.length <= 1) {
+    return {
+      from: drawerReq.value.from,
+      to: drawerReq.value.to,
+      days: drawerReq.value.days,
+    }
+  }
+  const r = combinedDateRangeFromSegments(segs)
+  const days = segs.reduce((s, x) => s + x.days, 0)
+  return { ...r, days }
+})
+
 function openDrawer(req) {
-  drawerReq.value = req
+  drawerReq.value = primaryPlanRequest(req)
   showDrawer.value = true
 }
 
@@ -650,19 +803,38 @@ const rejectReason    = ref('')
 const approvalEmp = computed(() =>
   approvalReq.value ? (EMPLOYEE_DATA[approvalReq.value.employee] || null) : null
 )
+const approvalAnnualSegments = computed(() =>
+  approvalReq.value ? annualLeaveSamePlanSegments(approvalReq.value) : [],
+)
+const approvalAnnualTotalDays = computed(() => {
+  const segs = approvalAnnualSegments.value
+  if (!segs.length) return approvalReq.value?.days ?? 0
+  return segs.reduce((s, r) => s + r.days, 0)
+})
+const approvalWorkloadRange = computed(() => {
+  const req = approvalReq.value
+  if (!req) return null
+  const segs = approvalAnnualSegments.value
+  if (segs.length <= 1) return { from: req.from, to: req.to }
+  return combinedDateRangeFromSegments(segs)
+})
 const approvalBalance = computed(() => {
   if (!approvalEmp.value) return null
   const b = approvalEmp.value.balance
-  return { total: b.total, used: b.used, remaining: b.total - b.used - (approvalReq.value?.days || 0) }
+  const days = approvalAnnualTotalDays.value
+  return { total: b.total, used: b.used, remaining: b.total - b.used - days }
 })
 const workloadPeers = computed(() => {
   if (!approvalReq.value) return []
   const req = approvalReq.value
+  const range = approvalWorkloadRange.value
+  if (!range) return []
+  const peerIds = new Set(approvalAnnualSegments.value.map(r => r.id))
   return allRequests.value.filter(r =>
-    r.id !== req.id &&
+    !peerIds.has(r.id) &&
     r.employee !== req.employee &&
     (r.status === 'approved' || r.status === 'planned') &&
-    hasOverlap(r.from, r.to, req.from, req.to)
+    hasOverlap(r.from, r.to, range.from, range.to)
   )
 })
 const substituteColleague = computed(() =>
@@ -679,16 +851,22 @@ function openApproval(req) {
 }
 function doApprove() {
   const req = approvalReq.value
-  const r = allRequests.value.find(r => r.id === req.id)
-  if (r) {
-    r.status = 'approved_by_manager'
-    if (!r.activity) r.activity = []
-    r.activity.push({ actor: 'Менеджер', role: 'manager', action: 'approved', time: new Date(), note: '' })
+  if (!req) return
+  const segments = approvalAnnualSegments.value.length ? approvalAnnualSegments.value : [req]
+  for (const seg of segments) {
+    const r = allRequests.value.find(x => x.id === seg.id)
+    if (r) {
+      r.status = 'approved_by_manager'
+      if (!r.activity) r.activity = []
+      r.activity.push({ actor: 'Менеджер', role: 'manager', action: 'approved', time: new Date(), note: '' })
+    }
   }
   showApproval.value = false
+  const range = approvalWorkloadRange.value
+  const totalDays = approvalAnnualTotalDays.value
   addNotification({
     title: 'Заявка ожидает подтверждения HR',
-    body: `${req.employee} — ${fmtDate(req.from)}–${fmtDate(req.to)} · ${req.days} дн.`,
+    body: `${req.employee} — ${fmtDate(range.from)}–${fmtDate(range.to)} · ${totalDays} дн.`,
     roles: ['hr', 'admin'],
     requestId: req.id,
     cta: 'Подтвердить',
@@ -696,7 +874,7 @@ function doApprove() {
   })
   addNotification({
     title: 'Заявка одобрена руководителем',
-    body: `Ваш отпуск ${fmtDate(req.from)}–${fmtDate(req.to)} передан на подтверждение HR`,
+    body: `Ваш отпуск ${fmtDate(range.from)}–${fmtDate(range.to)} передан на подтверждение HR`,
     roles: ['staff'],
     requestId: req.id,
     cta: null,
@@ -705,16 +883,22 @@ function doApprove() {
 }
 function doReject() {
   const req = approvalReq.value
-  const r = allRequests.value.find(r => r.id === req.id)
-  if (r) {
-    r.status = 'rejected'; r.rejectReason = rejectReason.value
-    if (!r.activity) r.activity = []
-    r.activity.push({ actor: 'Менеджер', role: 'manager', action: 'rejected', time: new Date(), note: rejectReason.value })
+  if (!req) return
+  const segments = approvalAnnualSegments.value.length ? approvalAnnualSegments.value : [req]
+  for (const seg of segments) {
+    const r = allRequests.value.find(x => x.id === seg.id)
+    if (r) {
+      r.status = 'rejected'
+      r.rejectReason = rejectReason.value
+      if (!r.activity) r.activity = []
+      r.activity.push({ actor: 'Менеджер', role: 'manager', action: 'rejected', time: new Date(), note: rejectReason.value })
+    }
   }
   showApproval.value = false
+  const range = approvalWorkloadRange.value
   addNotification({
     title: 'Заявка отклонена',
-    body: `Ваш отпуск ${fmtDate(req.from)}–${fmtDate(req.to)} отклонён руководителем`,
+    body: `Ваш отпуск ${fmtDate(range.from)}–${fmtDate(range.to)} отклонён руководителем`,
     roles: ['staff'],
     requestId: req.id,
     cta: null,
@@ -728,27 +912,82 @@ const hrConfirmReq     = ref(null)
 const showHrRejectInput= ref(false)
 const hrRejectReason   = ref('')
 
+const hrConfirmAnnualSegments = computed(() =>
+  hrConfirmReq.value ? annualLeaveSamePlanSegments(hrConfirmReq.value) : [],
+)
+const hrConfirmAnnualTotalDays = computed(() => {
+  const segs = hrConfirmAnnualSegments.value
+  if (!segs.length) return hrConfirmReq.value?.days ?? 0
+  return segs.reduce((s, r) => s + r.days, 0)
+})
+
+const hrConfirmModalRange = computed(() => {
+  const req = hrConfirmReq.value
+  if (!req) return null
+  const segs = hrConfirmAnnualSegments.value
+  if (segs.length <= 1) return { from: req.from, to: req.to }
+  return combinedDateRangeFromSegments(segs)
+})
+
 const hrConfirmChecks = computed(() => {
   if (!hrConfirmReq.value) return []
   const req = hrConfirmReq.value
   const emp = EMPLOYEE_DATA[req.employee]
   const avail = emp ? emp.balance.total - emp.balance.used : 0
-  const balanceOk = avail >= req.days
+  const daysNeeded = hrConfirmAnnualTotalDays.value
+  const balanceOk = avail >= daysNeeded
+
+  const range =
+    hrConfirmAnnualSegments.value.length > 1
+      ? combinedDateRangeFromSegments(hrConfirmAnnualSegments.value)
+      : { from: req.from, to: req.to }
+  const segmentIds = new Set(hrConfirmAnnualSegments.value.map(r => r.id))
 
   const conflicts = allRequests.value.filter(r =>
-    r.id !== req.id &&
+    !segmentIds.has(r.id) &&
     r.employee === req.employee &&
     (r.status === 'confirmed' || r.status === 'approved') &&
-    hasOverlap(r.from, r.to, req.from, req.to)
+    hasOverlap(r.from, r.to, range.from, range.to)
   )
+
+  const dept = emp?.dept
+  const limitPct = DEPT_VACATION_COVERAGE_LIMIT_PERCENT
+  const statusInDeptLoad = s => DEPT_LOAD_REQUEST_STATUSES.includes(s)
+  let deptLoadRow = {
+    label: 'Нагрузка отдела',
+    ok: true,
+    value: 'Нет данных по подразделению',
+    blocksConfirmation: false,
+  }
+  if (dept) {
+    const peak = peakDeptLoadFromNamedRequests({
+      employeeData: EMPLOYEE_DATA,
+      requests: allRequests.value,
+      department: dept,
+      rangeFrom: range.from,
+      rangeTo: range.to,
+      includeStatus: statusInDeptLoad,
+    })
+    const rounded = Math.round(peak.maxPercent * 10) / 10
+    const over = peak.maxPercent > limitPct
+    const headcount = Object.values(EMPLOYEE_DATA).filter(e => e.dept === dept).length
+    deptLoadRow = {
+      label: 'Нагрузка отдела',
+      ok: !over,
+      value: over
+        ? `Предупреждение: до ${rounded}% штата в отпуске в один день (лимит ${limitPct}%)${peak.worstDay ? ` — напр. ${fmtDate(peak.worstDay)} (${peak.maxConcurrent}/${headcount} чел.)` : ''}`
+        : `В пределах нормы — до ${rounded}% одновременно (лимит ${limitPct}%)`,
+      blocksConfirmation: false,
+    }
+  }
 
   return [
     {
       label: 'Баланс',
       ok: balanceOk,
       value: balanceOk
-        ? `Достаточно — доступно ${avail} дн., запрошено ${req.days}`
-        : `Недостаточно — доступно ${avail} дн., запрошено ${req.days}`,
+        ? `Достаточно — доступно ${avail} дн., запрошено ${daysNeeded}`
+        : `Недостаточно — доступно ${avail} дн., запрошено ${daysNeeded}`,
     },
     {
       label: 'Конфликт дат',
@@ -757,6 +996,7 @@ const hrConfirmChecks = computed(() => {
         ? 'Не обнаружен'
         : `Пересечение с ${conflicts.length} подтверждённой заявкой`,
     },
+    deptLoadRow,
     {
       label: 'Тип отпуска',
       ok: true,
@@ -765,7 +1005,9 @@ const hrConfirmChecks = computed(() => {
   ]
 })
 
-const hrChecksAllOk = computed(() => hrConfirmChecks.value.every(c => c.ok))
+const hrChecksAllOk = computed(() =>
+  hrConfirmChecks.value.filter(c => c.blocksConfirmation !== false).every(c => c.ok),
+)
 
 function openHrConfirm(req) {
   hrConfirmReq.value = req
@@ -776,19 +1018,28 @@ function openHrConfirm(req) {
 
 function doHrConfirm() {
   const req = hrConfirmReq.value
-  const r = allRequests.value.find(r => r.id === req.id)
-  if (r) {
-    r.status = 'confirmed'
-    const emp = EMPLOYEE_DATA[r.employee]
-    if (emp) emp.balance.used += r.days
-    if (!r.activity) r.activity = []
-    r.activity.push({ actor: 'HR Менеджер', role: 'hr', action: 'confirmed', time: new Date(), note: '' })
+  if (!req) return
+  const segments = hrConfirmAnnualSegments.value.length ? hrConfirmAnnualSegments.value : [req]
+  const totalDays = hrConfirmAnnualTotalDays.value
+  const emp = EMPLOYEE_DATA[req.employee]
+  for (const seg of segments) {
+    const r = allRequests.value.find(x => x.id === seg.id)
+    if (r) {
+      r.status = 'confirmed'
+      if (!r.activity) r.activity = []
+      r.activity.push({ actor: 'HR Менеджер', role: 'hr', action: 'confirmed', time: new Date(), note: '' })
+    }
   }
+  if (emp) emp.balance.used += totalDays
   showHrConfirm.value = false
+  const range =
+    hrConfirmAnnualSegments.value.length > 1
+      ? combinedDateRangeFromSegments(hrConfirmAnnualSegments.value)
+      : { from: req.from, to: req.to }
   const orderNum = `АНТ-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 900) + 100)}`
   addNotification({
     title: 'Отпуск подтверждён',
-    body: `Ваш отпуск ${fmtDate(req.from)}–${fmtDate(req.to)} официально подтверждён. Приказ ${orderNum}.`,
+    body: `Ваш отпуск ${fmtDate(range.from)}–${fmtDate(range.to)} официально подтверждён. Приказ ${orderNum}.`,
     roles: ['staff'],
     requestId: req.id,
     cta: null,
@@ -798,16 +1049,25 @@ function doHrConfirm() {
 
 function doHrReject() {
   const req = hrConfirmReq.value
-  const r = allRequests.value.find(r => r.id === req.id)
-  if (r) {
-    r.status = 'rejected'; r.rejectReason = hrRejectReason.value
-    if (!r.activity) r.activity = []
-    r.activity.push({ actor: 'HR Менеджер', role: 'hr', action: 'hr_rejected', time: new Date(), note: hrRejectReason.value })
+  if (!req) return
+  const segments = hrConfirmAnnualSegments.value.length ? hrConfirmAnnualSegments.value : [req]
+  for (const seg of segments) {
+    const r = allRequests.value.find(x => x.id === seg.id)
+    if (r) {
+      r.status = 'rejected'
+      r.rejectReason = hrRejectReason.value
+      if (!r.activity) r.activity = []
+      r.activity.push({ actor: 'HR Менеджер', role: 'hr', action: 'hr_rejected', time: new Date(), note: hrRejectReason.value })
+    }
   }
   showHrConfirm.value = false
+  const range =
+    hrConfirmAnnualSegments.value.length > 1
+      ? combinedDateRangeFromSegments(hrConfirmAnnualSegments.value)
+      : { from: req.from, to: req.to }
   addNotification({
     title: 'Заявка отклонена HR',
-    body: `Ваш отпуск ${fmtDate(req.from)}–${fmtDate(req.to)} отклонён службой HR`,
+    body: `Ваш отпуск ${fmtDate(range.from)}–${fmtDate(range.to)} отклонён службой HR`,
     roles: ['staff'],
     requestId: req.id,
     cta: null,
@@ -946,7 +1206,7 @@ function doHrReject() {
           <Users :size="14" stroke-width="2" class="ui-pill-tab__ic" />
           Команда
         </UiPillTab>
-        <UiPillTab id="requests" :badge="requests.length">
+        <UiPillTab id="requests" :badge="staffRequestsDisplayRows.length">
           Заявки
         </UiPillTab>
       </UiPillTabs>
@@ -1009,20 +1269,22 @@ function doHrReject() {
                 <th>С</th>
                 <th>По</th>
                 <th class="align-right">Дней</th>
+                <th class="align-center col-parts">Частей</th>
                 <th>Маршрут</th>
                 <th class="align-right">Статус</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in requests" :key="row.id" class="row-clickable" @click="openDrawer(row)">
+              <tr v-for="row in staffRequestsDisplayRows" :key="row.id" class="row-clickable" @click="openDrawer(row)">
                 <td class="col-muted">{{ row.type }}</td>
-                <td class="col-date">{{ fmtDate(row.from) }}</td>
-                <td class="col-date">{{ fmtDate(row.to) }}</td>
+                <td class="col-date col-muted">{{ row.partCount > 1 ? '—' : fmtDate(row.from) }}</td>
+                <td class="col-date col-muted">{{ row.partCount > 1 ? '—' : fmtDate(row.to) }}</td>
                 <td class="align-right col-muted">{{ row.days }}</td>
+                <td class="align-center col-parts col-muted">{{ row.partCount }}</td>
                 <td>
                   <div class="approver-chain">
                     <div
-                      v-for="ap in getApproverStates(row)"
+                      v-for="ap in getApproverStates(primaryPlanRequest(row))"
                       :key="ap.key"
                       :class="['approver-av', `approver-av--${ap.state}`]"
                       :title="`${ap.name} (${ap.role})`"
@@ -1033,8 +1295,8 @@ function doHrReject() {
                   <StatusBadge :status="row.status" :label="statusLabel[row.status]" />
                 </td>
               </tr>
-              <tr v-if="requests.length === 0">
-                <td colspan="6" class="empty-row">Заявок пока нет</td>
+              <tr v-if="staffRequestsDisplayRows.length === 0">
+                <td colspan="7" class="empty-row">Заявок пока нет</td>
               </tr>
             </tbody>
           </table>
@@ -1057,6 +1319,7 @@ function doHrReject() {
 
       <!-- Tab bar: только HR / админ (у руководителя — сразу список заявок) -->
       <UiPillTabs v-if="isHrOrAdmin" v-model="activeTab" class="vacations-page-tabs">
+        <UiPillTab id="dashboard">Дашборд</UiPillTab>
         <UiPillTab id="requests">Заявки</UiPillTab>
         <UiPillTab id="planning">Планирование</UiPillTab>
       </UiPillTabs>
@@ -1136,7 +1399,7 @@ function doHrReject() {
       <div v-if="isHrOrAdmin && summary.approvedByManager" class="card approval-queue-card hr-queue-card">
         <div class="aq-title aq-title-hr">Утверждены менеджером — ожидают финального подтверждения HR</div>
         <div class="aq-list">
-          <div v-for="r in allRequests.filter(r => r.status === 'approved_by_manager')" :key="r.id" class="aq-row aq-row-hr">
+          <div v-for="r in hrQueueApprovedByManager" :key="r.id" class="aq-row aq-row-hr">
             <div class="aq-emp">
               <div class="aq-avatar aq-avatar-hr">{{ empInitials(r.employee) }}</div>
               <div class="aq-emp-info">
@@ -1144,10 +1407,11 @@ function doHrReject() {
                 <div class="aq-emp-meta">{{ EMPLOYEE_DATA[r.employee]?.dept }} · {{ EMPLOYEE_DATA[r.employee]?.position }}</div>
               </div>
             </div>
-            <div class="aq-dates">{{ fmtDate(r.from) }} — {{ fmtDate(r.to) }}</div>
+            <div class="aq-dates">{{ r.partCount > 1 ? '—' : `${fmtDate(r.from)} — ${fmtDate(r.to)}` }}</div>
             <div class="aq-type">{{ r.type }}</div>
+            <div class="aq-parts" :title="r.partCount > 1 ? 'Частей в плане' : ''">{{ r.partCount > 1 ? `${r.partCount} ч.` : '—' }}</div>
             <div class="aq-days">{{ r.days }} дн.</div>
-            <button class="btn-review btn-review-hr" @click="openHrConfirm(r)">Подтвердить</button>
+            <button class="btn-review btn-review-hr" @click="openHrConfirm(primaryPlanRequest(r))">Подтвердить</button>
           </div>
         </div>
       </div>
@@ -1186,11 +1450,12 @@ function doHrReject() {
               <th>С</th>
               <th>По</th>
               <th class="align-right">Дней</th>
+              <th class="align-center">Частей</th>
               <th class="align-right">Статус</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in approvalsTableRowsFinal" :key="row.id" class="row-clickable" @click="openDrawer(row)">
+            <tr v-for="row in approvalsDisplayRows" :key="row.id" class="row-clickable" @click="openDrawer(row)">
               <td class="col-emp">
                 <div class="approvals-emp-cell">
                   <div class="approvals-emp-avatar" aria-hidden="true">{{ empInitials(row.employee) }}</div>
@@ -1201,9 +1466,10 @@ function doHrReject() {
                 </div>
               </td>
               <td class="col-muted">{{ empDeptLabel(row.employee) }}</td>
-              <td class="col-date">{{ fmtDate(row.from) }}</td>
-              <td class="col-date">{{ fmtDate(row.to) }}</td>
+              <td class="col-date col-muted">{{ row.partCount > 1 ? '—' : fmtDate(row.from) }}</td>
+              <td class="col-date col-muted">{{ row.partCount > 1 ? '—' : fmtDate(row.to) }}</td>
               <td class="align-right col-muted">{{ row.days }}</td>
+              <td class="align-center col-muted">{{ row.partCount }}</td>
               <td class="align-right">
                 <StatusBadge
                   :status="row.status"
@@ -1211,16 +1477,19 @@ function doHrReject() {
                 />
               </td>
             </tr>
-            <tr v-if="approvalsTableRowsFinal.length === 0">
-              <td colspan="6" class="empty-row">Ничего не найдено — измените поиск или фильтры.</td>
+            <tr v-if="approvalsDisplayRows.length === 0">
+              <td colspan="7" class="empty-row">Ничего не найдено — измените поиск или фильтры.</td>
             </tr>
           </tbody>
         </table>
       </div>
       </template>
 
+      <!-- ── HR: дашборд планирования (только роль HR) ── -->
+      <VacationHrDashboard v-else-if="isHrOrAdmin && activeTab === 'dashboard'" />
+
       <!-- ── Planning tab (только HR / админ) ── -->
-      <VacationPlanning v-else-if="isHrOrAdmin" />
+      <VacationPlanning v-else-if="isHrOrAdmin && activeTab === 'planning'" />
 
     </template>
 
@@ -1251,8 +1520,8 @@ function doHrReject() {
                 </div>
               </div>
 
-              <!-- Details grid -->
-              <div class="drawer-details">
+              <!-- Одна часть: даты в сетке. Несколько частей: только тип, всего дней и список частей (без «С—По» целиком). -->
+              <div v-if="drawerAnnualSegments.length <= 1" class="drawer-details">
                 <div class="drawer-detail">
                   <div class="drawer-detail-label">С</div>
                   <div class="drawer-detail-val">{{ fmtDate(drawerReq.from) }}</div>
@@ -1269,6 +1538,33 @@ function doHrReject() {
                   <div class="drawer-detail-label">Тип</div>
                   <div class="drawer-detail-val">{{ drawerReq.type }}</div>
                 </div>
+              </div>
+              <div v-else class="drawer-details drawer-details--compact">
+                <div class="drawer-detail">
+                  <div class="drawer-detail-label">Тип</div>
+                  <div class="drawer-detail-val">{{ drawerReq.type }}</div>
+                </div>
+                <div class="drawer-detail">
+                  <div class="drawer-detail-label">Всего дней</div>
+                  <div class="drawer-detail-val">{{ drawerHeadRange.days }}</div>
+                </div>
+              </div>
+
+              <div
+                v-if="drawerAnnualSegments.length > 1"
+                class="drawer-plan-parts"
+              >
+                <div class="drawer-plan-parts-title">Части плана</div>
+                <ul class="drawer-plan-parts-list" role="list">
+                  <li
+                    v-for="seg in drawerAnnualSegments"
+                    :key="seg.id"
+                    class="drawer-plan-part"
+                  >
+                    <span class="drawer-plan-part-dates">{{ fmtDate(seg.from) }} — {{ fmtDate(seg.to) }}</span>
+                    <span class="drawer-plan-part-days">{{ seg.days }} дн.</span>
+                  </li>
+                </ul>
               </div>
 
               <!-- Comment -->
@@ -1361,23 +1657,46 @@ function doHrReject() {
 
             <div class="hr-confirm-section">
               <div class="hr-confirm-section-title">Параметры отпуска</div>
-              <div class="hr-confirm-grid">
+              <div v-if="approvalAnnualSegments.length <= 1" class="hr-confirm-grid">
                 <div class="hr-confirm-cell">
                   <span class="hr-confirm-label">Тип</span>
                   <span class="hr-confirm-val">{{ approvalReq.type }}</span>
                 </div>
                 <div class="hr-confirm-cell">
                   <span class="hr-confirm-label">С</span>
-                  <span class="hr-confirm-val">{{ fmtDate(approvalReq.from) }}</span>
+                  <span class="hr-confirm-val">{{ fmtDate(approvalWorkloadRange.from) }}</span>
                 </div>
                 <div class="hr-confirm-cell">
                   <span class="hr-confirm-label">По</span>
-                  <span class="hr-confirm-val">{{ fmtDate(approvalReq.to) }}</span>
+                  <span class="hr-confirm-val">{{ fmtDate(approvalWorkloadRange.to) }}</span>
                 </div>
                 <div class="hr-confirm-cell">
                   <span class="hr-confirm-label">Дней</span>
-                  <span class="hr-confirm-val">{{ approvalReq.days }}</span>
+                  <span class="hr-confirm-val">{{ approvalAnnualTotalDays }}</span>
                 </div>
+              </div>
+              <div v-else class="hr-confirm-grid hr-confirm-grid--twocol">
+                <div class="hr-confirm-cell">
+                  <span class="hr-confirm-label">Тип</span>
+                  <span class="hr-confirm-val">{{ approvalReq.type }}</span>
+                </div>
+                <div class="hr-confirm-cell">
+                  <span class="hr-confirm-label">Всего дней</span>
+                  <span class="hr-confirm-val">{{ approvalAnnualTotalDays }}</span>
+                </div>
+              </div>
+              <div v-if="approvalAnnualSegments.length > 1" class="hr-confirm-plan-parts">
+                <div class="hr-confirm-section-title hr-confirm-section-title--inline">Части плана</div>
+                <ul class="drawer-plan-parts-list" role="list">
+                  <li
+                    v-for="seg in approvalAnnualSegments"
+                    :key="seg.id"
+                    class="drawer-plan-part"
+                  >
+                    <span class="drawer-plan-part-dates">{{ fmtDate(seg.from) }} — {{ fmtDate(seg.to) }}</span>
+                    <span class="drawer-plan-part-days">{{ seg.days }} дн.</span>
+                  </li>
+                </ul>
               </div>
               <div v-if="approvalReq.comment" class="hr-confirm-comment">
                 <span class="hr-confirm-label">Комментарий</span>
@@ -1473,23 +1792,46 @@ function doHrReject() {
 
               <div class="hr-confirm-section">
                 <div class="hr-confirm-section-title">Параметры отпуска</div>
-                <div class="hr-confirm-grid">
+                <div v-if="hrConfirmAnnualSegments.length <= 1" class="hr-confirm-grid">
                   <div class="hr-confirm-cell">
                     <span class="hr-confirm-label">Тип</span>
                     <span class="hr-confirm-val">{{ hrConfirmReq.type }}</span>
                   </div>
                   <div class="hr-confirm-cell">
                     <span class="hr-confirm-label">С</span>
-                    <span class="hr-confirm-val">{{ fmtDate(hrConfirmReq.from) }}</span>
+                    <span class="hr-confirm-val">{{ fmtDate(hrConfirmModalRange.from) }}</span>
                   </div>
                   <div class="hr-confirm-cell">
                     <span class="hr-confirm-label">По</span>
-                    <span class="hr-confirm-val">{{ fmtDate(hrConfirmReq.to) }}</span>
+                    <span class="hr-confirm-val">{{ fmtDate(hrConfirmModalRange.to) }}</span>
                   </div>
                   <div class="hr-confirm-cell">
                     <span class="hr-confirm-label">Дней</span>
-                    <span class="hr-confirm-val">{{ hrConfirmReq.days }}</span>
+                    <span class="hr-confirm-val">{{ hrConfirmAnnualTotalDays }}</span>
                   </div>
+                </div>
+                <div v-else class="hr-confirm-grid hr-confirm-grid--twocol">
+                  <div class="hr-confirm-cell">
+                    <span class="hr-confirm-label">Тип</span>
+                    <span class="hr-confirm-val">{{ hrConfirmReq.type }}</span>
+                  </div>
+                  <div class="hr-confirm-cell">
+                    <span class="hr-confirm-label">Всего дней</span>
+                    <span class="hr-confirm-val">{{ hrConfirmAnnualTotalDays }}</span>
+                  </div>
+                </div>
+                <div v-if="hrConfirmAnnualSegments.length > 1" class="hr-confirm-plan-parts">
+                  <div class="hr-confirm-section-title hr-confirm-section-title--inline">Части плана</div>
+                  <ul class="drawer-plan-parts-list" role="list">
+                    <li
+                      v-for="seg in hrConfirmAnnualSegments"
+                      :key="seg.id"
+                      class="drawer-plan-part"
+                    >
+                      <span class="drawer-plan-part-dates">{{ fmtDate(seg.from) }} — {{ fmtDate(seg.to) }}</span>
+                      <span class="drawer-plan-part-days">{{ seg.days }} дн.</span>
+                    </li>
+                  </ul>
                 </div>
                 <div v-if="hrConfirmReq.comment" class="hr-confirm-comment">
                   <span class="hr-confirm-label">Комментарий</span>
@@ -1504,9 +1846,10 @@ function doHrReject() {
                     v-for="c in hrConfirmChecks"
                     :key="c.label"
                     class="hr-confirm-checkitem"
-                    :class="c.ok ? 'is-ok' : 'is-fail'"
+                    :class="c.ok ? 'is-ok' : (c.blocksConfirmation === false ? 'is-warn' : 'is-fail')"
                   >
                     <CheckCircle2 v-if="c.ok" :size="16" stroke-width="2" class="hr-cc-ic ok" />
+                    <AlertTriangle v-else-if="c.blocksConfirmation === false" :size="16" stroke-width="2" class="hr-cc-ic warn" />
                     <AlertCircle v-else :size="16" stroke-width="2" class="hr-cc-ic fail" />
                     <div class="hr-cc-body">
                       <span class="hr-cc-title">{{ c.label }}</span>
@@ -1876,7 +2219,9 @@ function doHrReject() {
 .data-table tbody tr:hover { background: #fafafa; }
 .data-table td { padding: 13px 20px; color: #444; }
 .align-right { text-align: right; }
+.align-center { text-align: center; }
 .data-table th.align-right { text-align: right; }
+.col-parts { width: 56px; }
 .col-name  { color: #222; font-weight: 450; }
 .col-emp {
   min-width: 200px;
@@ -2105,6 +2450,7 @@ function doHrReject() {
 .aq-emp-meta { font-size: 11px; color: #aaa; margin-top: 1px; }
 .aq-dates    { font-size: 12.5px; color: #666; white-space: nowrap; }
 .aq-type     { font-size: 12px; color: #aaa; white-space: nowrap; }
+.aq-parts    { font-size: 11.5px; color: #999; white-space: nowrap; flex-shrink: 0; min-width: 36px; }
 .aq-days     { font-size: 12.5px; color: #888; white-space: nowrap; }
 
 .btn-review {
@@ -2287,10 +2633,21 @@ function doHrReject() {
   color: #999;
   margin-bottom: 12px;
 }
+.hr-confirm-section-title--inline {
+  margin-bottom: 8px;
+}
+.hr-confirm-plan-parts {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
 .hr-confirm-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px 12px;
+}
+.hr-confirm-grid--twocol {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .hr-confirm-cell {
   display: flex;
@@ -2329,6 +2686,7 @@ function doHrReject() {
 .hr-confirm-checkitem:first-child { padding-top: 0; }
 .hr-cc-ic { flex-shrink: 0; margin-top: 2px; }
 .hr-cc-ic.ok { color: #2ba896; }
+.hr-cc-ic.warn { color: #d97706; }
 .hr-cc-ic.fail { color: #e05a5a; }
 .hr-cc-body {
   display: flex;
@@ -2339,6 +2697,7 @@ function doHrReject() {
 .hr-cc-title { font-size: 12.5px; font-weight: 600; color: #333; }
 .hr-cc-detail { font-size: 12px; color: #666; line-height: 1.4; }
 .hr-confirm-checkitem.is-fail .hr-cc-detail { color: #b91c1c; }
+.hr-confirm-checkitem.is-warn .hr-cc-detail { color: #b45309; }
 
 .hr-confirm-reject {
   padding: 16px 20px 20px;
@@ -2428,6 +2787,7 @@ button:disabled {
   border: 1px solid #f0f0f0;
   border-radius: 8px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 .drawer-detail {
   background: #fff;
@@ -2435,9 +2795,50 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0;
 }
 .drawer-detail-label { font-size: 11px; color: #bbb; font-weight: 500; }
 .drawer-detail-val   { font-size: 13px; color: #1a1a1a; font-weight: 450; }
+
+.drawer-details.drawer-details--compact {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+.drawer-details.drawer-details--compact .drawer-detail {
+  flex: 1 1 0;
+}
+
+.drawer-plan-parts {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #eee;
+}
+.drawer-plan-parts-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #999;
+  margin-bottom: 8px;
+}
+.drawer-plan-parts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.drawer-plan-part {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+}
+.drawer-plan-part:last-child { border-bottom: none; padding-bottom: 0; }
+.drawer-plan-part-dates { color: #333; font-weight: 500; }
+.drawer-plan-part-days { color: #888; font-size: 12.5px; white-space: nowrap; }
 
 /* Comment */
 .drawer-comment {

@@ -5,6 +5,22 @@ export default createRouter({
   routes: [
     { path: '/',          name: 'dashboard', component: () => import('../views/Dashboard.vue') },
     {
+      path: '/tasks',
+      name: 'tasks',
+      component: () => import('../views/Tasks.vue'),
+      meta: { title: 'Задачи', tasksFullPage: true, fullWidth: true },
+    },
+    {
+      path: '/tasks/:id',
+      name: 'task-detail',
+      component: () => import('../views/TaskDetail.vue'),
+      meta: {
+        title: 'Задача',
+        parent: { name: 'Задачи', to: '/tasks' },
+        fullWidth: true,
+      },
+    },
+    {
       path: '/vacations',
       name: 'vacations',
       component: () => import('../views/Vacations.vue'),
