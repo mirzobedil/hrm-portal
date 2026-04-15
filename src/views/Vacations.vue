@@ -9,7 +9,7 @@ import ActivityFeed from '@/components/ActivityFeed.vue'
 import ActivityFeedItem from '@/components/ActivityFeedItem.vue'
 import {
   UiDateRangeInput, UiTextField, UiSelect, UiTextarea, UiSearchField, UiButton, UiIconButton,
-  UiPillTabs, UiPillTab, UiTableToolbar,
+  UiPillTabs, UiPillTab, UiTableToolbar, UiInput, UiField,
 } from '@/components/ui'
 import { useClientTableFilter } from '@/composables/useClientTableFilter'
 import {
@@ -21,7 +21,7 @@ import {
   DEPT_LOAD_REQUEST_STATUSES,
 } from '@/constants/vacation'
 import { peakDeptLoadFromNamedRequests } from '@/utils/vacationDepartmentLoad'
-import { EMPLOYEE_DATA } from '@/data/vacationRequests'
+import { EMPLOYEE_DATA, earnedAnnualVacationDaysFromHire } from '@/data/vacationRequests'
 import { COLLEAGUES } from '@/data/colleagues'
 import { useVacationRequests } from '@/composables/useVacationRequests'
 import { vacationPlanFlash } from '@/composables/useVacationPlanFlash'
@@ -29,7 +29,7 @@ import { VACATION_REQUEST_FLASH_TOAST_KEY } from '@/constants/vacationRequestUi'
 import {
   Plus, Check, X, ChevronLeft, ChevronRight, Send, CheckCircle2, AlertCircle, AlertTriangle,
   Clock, ClipboardList, ShieldCheck, Ban, CalendarDays, Minus, Users, Palmtree,
-  Briefcase,
+  Briefcase, Calculator,
 } from 'lucide-vue-next'
 
 const activeRole      = inject('activeRole')
@@ -370,6 +370,66 @@ const plannedDays = computed(() =>
     .reduce((sum, r) => sum + r.days, 0)
 )
 const remaining = computed(() => balance.value.total - balance.value.used - plannedDays.value)
+
+const ANNUAL_VACATION_TYPE = 'Ежегодный'
+
+/** Ежегодные заявки (не отклонённые) — для калькулятора остатка на дату */
+const myAnnualBalanceRows = computed(() =>
+  allRequests.value.filter(
+    r =>
+      r.employee === currentUser.value.name &&
+      r.type === ANNUAL_VACATION_TYPE &&
+      r.status !== 'rejected',
+  ),
+)
+
+const showBalanceCalcModal = ref(false)
+const balanceCalcDate = ref('')
+
+function openBalanceCalcModal() {
+  balanceCalcDate.value = ''
+  showBalanceCalcModal.value = true
+}
+
+function prevIsoDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setDate(dt.getDate() - 1)
+  const yy = dt.getFullYear()
+  const mm = String(dt.getMonth() + 1).padStart(2, '0')
+  const dd = String(dt.getDate()).padStart(2, '0')
+  return `${yy}-${mm}-${dd}`
+}
+
+/** Календарные дни отпуска [from, to], которые строго раньше asOf (утро выбранной даты). */
+function countAnnualDaysStrictlyBeforeVacation(fromIso, toIso, asOfIso) {
+  if (fromIso >= asOfIso) return 0
+  if (toIso < asOfIso) return daysBetween(fromIso, toIso)
+  const end = prevIsoDate(asOfIso)
+  const last = end < toIso ? end : toIso
+  return daysBetween(fromIso, last)
+}
+
+/** Один показатель: сколько дней ежегодного можно взять с выбранной даты (минимум из стажа и лимита по заявкам). */
+const balanceCalcDays = computed(() => {
+  const rows = myAnnualBalanceRows.value
+  const total = balance.value.total
+  const hireIso = EMPLOYEE_DATA[currentUser.value.name]?.hireDate ?? '2010-01-01'
+  const allocated = rows.reduce((s, r) => s + r.days, 0)
+  const capByRequests = total - allocated
+
+  const asOf = (balanceCalcDate.value || '').trim()
+  if (!asOf) return { hasDate: false, days: 0 }
+
+  let takenBefore = 0
+  for (const r of rows) {
+    takenBefore += countAnnualDaysStrictlyBeforeVacation(r.from, r.to, asOf)
+  }
+  const earned = earnedAnnualVacationDaysFromHire(hireIso, asOf, total)
+  const byTenure = earned - takenBefore
+  const days = Math.min(byTenure, capByRequests)
+  return { hasDate: true, days }
+})
 
 /** Уже в статусе «запланировано» — для подсказки в модалке планирования */
 const myPlannedRequests = computed(() =>
@@ -1123,11 +1183,78 @@ function doHrReject() {
         <div class="card stat-card">
           <div class="stat-top">
             <span class="stat-label">Доступно</span>
-            <CheckCircle2 :size="15" stroke-width="1.5" class="stat-icon" />
+            <div class="stat-top-actions">
+              <UiIconButton
+                type="button"
+                size="sm"
+                class="stat-calc-btn"
+                aria-label="Сколько дней отпуска можно взять"
+                title="Сколько дней отпуска можно взять"
+                @click="openBalanceCalcModal"
+              >
+                <Calculator :size="15" stroke-width="1.75" />
+              </UiIconButton>
+              <CheckCircle2 :size="15" stroke-width="1.5" class="stat-icon" />
+            </div>
           </div>
           <div class="stat-value stat-value--green">{{ remaining }}</div>
         </div>
       </div>
+
+      <Teleport to="body">
+        <div
+          v-if="showBalanceCalcModal"
+          class="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="balance-calc-title"
+          @click.self="showBalanceCalcModal = false"
+        >
+          <div class="modal balance-calc-modal">
+            <div class="modal-header">
+              <span id="balance-calc-title" class="modal-title">Ежегодный отпуск</span>
+              <UiIconButton type="button" size="sm" aria-label="Закрыть" @click="showBalanceCalcModal = false">
+                <X :size="14" stroke-width="2" />
+              </UiIconButton>
+            </div>
+            <div class="modal-body balance-calc-body">
+              <UiField label="Дата начала отпуска">
+                <UiInput v-model="balanceCalcDate" type="date" full-width />
+              </UiField>
+
+              <div
+                class="balance-calc-card"
+                :class="{ 'balance-calc-card--empty': !balanceCalcDays.hasDate }"
+              >
+                <span class="balance-calc-card-kicker">Доступно к оформлению</span>
+                <div class="balance-calc-card-main">
+                  <span
+                    class="balance-calc-num"
+                    :class="{
+                      'balance-calc-num--muted': !balanceCalcDays.hasDate,
+                      'balance-calc-num--warn': balanceCalcDays.hasDate && balanceCalcDays.days < 0,
+                    }"
+                  >
+                    {{ balanceCalcDays.days }}
+                  </span>
+                  <span
+                    class="balance-calc-unit"
+                    :class="{ 'balance-calc-unit--muted': !balanceCalcDays.hasDate }"
+                  >дн.</span>
+                </div>
+                <p v-if="!balanceCalcDays.hasDate" class="balance-calc-card-hint">
+                  Укажите дату — появится расчёт
+                </p>
+              </div>
+            </div>
+            <div class="modal-footer balance-calc-footer">
+              <UiButton variant="secondary" type="button" class="balance-calc-done" @click="showBalanceCalcModal = false">
+                Понятно
+              </UiButton>
+            </div>
+          </div>
+        </div>
+      </Teleport>
 
       <div
         v-if="vacationPlanFlash"
@@ -1973,6 +2100,89 @@ function doHrReject() {
   font-size: 11.5px;
   color: #aaa;
   line-height: 1.3;
+}
+.stat-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.stat-calc-btn {
+  color: #999;
+}
+.stat-calc-btn:hover {
+  color: #5b8ef0;
+}
+
+/* ── Калькулятор отпуска (компактный, с карточкой результата) ── */
+.balance-calc-modal.modal {
+  width: 100%;
+  max-width: 384px;
+}
+.balance-calc-card {
+  padding: 20px 18px 18px;
+  border-radius: 14px;
+  background: linear-gradient(165deg, #f5fcf9 0%, #e8f4ee 45%, #eef8f3 100%);
+  border: 1px solid #c4e3d6;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 4px 20px rgba(29, 122, 92, 0.07);
+  text-align: center;
+}
+.balance-calc-card--empty {
+  background: linear-gradient(165deg, #fcfdfc 0%, #f4faf7 100%);
+  border-color: #e2ebe7;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+}
+.balance-calc-card-kicker {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #5a9d86;
+  margin-bottom: 12px;
+}
+.balance-calc-card-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+}
+.balance-calc-num {
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -1.5px;
+  line-height: 0.95;
+  color: #157a5c;
+  font-variant-numeric: tabular-nums;
+}
+.balance-calc-num--muted {
+  color: #b5d1c6;
+}
+.balance-calc-num--warn {
+  color: #c73a3a;
+}
+.balance-calc-unit {
+  font-size: 16px;
+  font-weight: 600;
+  color: #2e8f6f;
+  padding-bottom: 5px;
+}
+.balance-calc-unit--muted {
+  color: #b8d0c7;
+}
+.balance-calc-card-hint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: #8fb0a3;
+  line-height: 1.4;
+}
+.balance-calc-footer {
+  padding-top: 2px;
+}
+.balance-calc-done {
+  min-width: 120px;
 }
 
 /* ── Баннер после сохранения годового плана ── */

@@ -13,56 +13,88 @@ export const EMPLOYEE_DATA = {
     dept: 'ИТ',
     subdept: 'Разработка программного обеспечения',
     position: 'Ведущий специалист',
+    /** Демо: принят в июне — в первый год полный лимит 28 дн. сразу недоступен */
+    hireDate: '2025-06-01',
     balance: { total: 28, used: 9 },
   },
   'Сардор Тошматов': {
     dept: 'ИТ',
     subdept: 'Разработка программного обеспечения',
     position: 'Главный специалист',
+    hireDate: '2019-04-10',
     balance: { total: 28, used: 5 },
   },
   'Нилуфар Юсупова': {
     dept: 'HR',
     subdept: 'Подбор и адаптация персонала',
     position: 'Ведущий специалист',
+    hireDate: '2018-02-01',
     balance: { total: 28, used: 3 },
   },
   'Жасур Мирзаев': {
     dept: 'HR',
     subdept: 'Кадровый учёт и кадровое делопроизводство',
     position: 'Специалист',
+    hireDate: '2020-09-14',
     balance: { total: 28, used: 6 },
   },
   'Малика Рахимова': {
     dept: 'ИТ',
     subdept: 'Обеспечение качества и тестирование',
     position: 'Эксперт',
+    hireDate: '2021-11-20',
     balance: { total: 28, used: 2 },
   },
   'Бобур Хасанов': {
     dept: 'Финансы',
     subdept: 'Бухгалтерский учёт и отчётность',
     position: 'Главный специалист',
+    hireDate: '2017-05-03',
     balance: { total: 28, used: 7 },
   },
   'Руслан Камолов': {
     dept: 'ИТ',
     subdept: 'Разработка программного обеспечения',
     position: 'Руководитель направления',
+    hireDate: '2015-01-12',
     balance: { total: 28, used: 4 },
   },
   'Зарина Хасанова': {
     dept: 'HR',
     subdept: 'Обучение и корпоративная политика',
     position: 'Ведущий специалист',
+    hireDate: '2016-08-22',
     balance: { total: 28, used: 8 },
   },
   'Дилноза Атаева': {
     dept: 'ИТ',
     subdept: 'Информационная безопасность',
     position: 'Главный специалист',
+    hireDate: '2019-07-01',
     balance: { total: 28, used: 5 },
   },
+}
+
+/**
+ * Полных календарных месяцев с даты приёма до asOf (сравнение по дню месяца как у даты приёма).
+ */
+export function completedWorkMonthsFromHire(hireIso, asOfIso) {
+  if (!hireIso || asOfIso < hireIso) return 0
+  const [hy, hm, hd] = hireIso.split('-').map(Number)
+  const [ay, am, ad] = asOfIso.split('-').map(Number)
+  let months = (ay - hy) * 12 + (am - hm)
+  if (ad < hd) months -= 1
+  return Math.max(0, months)
+}
+
+/**
+ * Целые дни годового отпуска «по стажу» к дате: первые 12 полных месяцев — ⌊28×мес/12⌋, далее — полный лимит.
+ */
+export function earnedAnnualVacationDaysFromHire(hireIso, asOfIso, annualTotal) {
+  const m = completedWorkMonthsFromHire(hireIso, asOfIso)
+  if (m <= 0) return 0
+  if (m >= 12) return annualTotal
+  return Math.min(annualTotal, Math.floor((annualTotal * m) / 12))
 }
 
 /** Статусы, когда отсутствие уже действует в календаре (для блока «сегодня в отпуске»). */
