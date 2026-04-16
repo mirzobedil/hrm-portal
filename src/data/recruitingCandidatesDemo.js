@@ -10,11 +10,6 @@ import { getRecruitingVacancyById } from '@/data/recruitingDashboardDemo.js'
 
 const DEFAULT_PROFILE = {
   city: 'Ташкент',
-  region: 'Ташкент',
-  dept: 'ИТ',
-  vacancyId: 'vac-1',
-  vacancyTitle: 'Senior Backend (Go)',
-  recruiterName: 'Нилуфар Юсупова',
 }
 
 /** Поля профиля, которых нет в цикле вакансии */
@@ -89,6 +84,22 @@ const PROFILE_EXTRA = {
     telegram: '—',
     lastContactAt: '2026-03-20',
   },
+  cc11: { source: 'hh.uz', birthDate: '14.02.1994', gender: 'Ж', telegram: '@d_alimova', lastContactAt: '2026-04-12' },
+  cc12: { source: 'LinkedIn', birthDate: '03.08.1991', gender: 'М', telegram: '—', lastContactAt: '2026-04-10' },
+  cc13: { source: 'Рекомендация', birthDate: '22.11.1996', gender: 'Ж', telegram: '@skim', lastContactAt: '2026-04-08' },
+  cc14: { source: 'hh.uz', birthDate: '19.05.1998', gender: 'М', telegram: '—', lastContactAt: '2026-04-05' },
+  cc15: { source: 'hh.uz', birthDate: '07.01.1990', gender: 'М', telegram: '@mzaytsev', lastContactAt: '2026-04-11' },
+  cc16: { source: 'Сайт компании', birthDate: '30.06.1992', gender: 'М', telegram: '—', lastContactAt: '2026-04-09' },
+  cc17: { source: 'LinkedIn', birthDate: '11.12.1988', gender: 'М', telegram: '@rhasanov', lastContactAt: '2026-04-04' },
+  cc18: { source: 'hh.uz', birthDate: '25.04.1987', gender: 'Ж', telegram: '—', lastContactAt: '2026-04-13' },
+  cc19: { source: 'Рекомендация', birthDate: '08.09.1993', gender: 'М', telegram: '@omirzaev', lastContactAt: '2026-04-07' },
+  cc20: { source: 'hh.uz', birthDate: '17.03.1997', gender: 'Ж', telegram: '—', lastContactAt: '2026-04-12' },
+  cc21: { source: 'hh.uz', birthDate: '02.10.1995', gender: 'М', telegram: '@iyunusov', lastContactAt: '2026-04-10' },
+  cc22: { source: 'LinkedIn', birthDate: '29.12.1999', gender: 'Ж', telegram: '—', lastContactAt: '2026-04-06' },
+  cc23: { source: 'hh.uz', birthDate: '16.06.1991', gender: 'М', telegram: '@psokolov', lastContactAt: '2026-04-14' },
+  cc24: { source: 'Рекомендация', birthDate: '04.07.1994', gender: 'Ж', telegram: '—', lastContactAt: '2026-04-11' },
+  cc25: { source: 'hh.uz', birthDate: '21.01.1989', gender: 'М', telegram: '@dgrin', lastContactAt: '2026-04-09' },
+  cc26: { source: 'LinkedIn', birthDate: '13.05.1992', gender: 'Ж', telegram: '@ivolkova', lastContactAt: '2026-04-08' },
 }
 
 /** События воронки (вкладка «Воронка») */
@@ -116,6 +127,12 @@ export const REC_CANDIDATE_DOCS = [
   { id: 'cd10', candidateId: 'cc8', name: 'Резюме (PDF)', date: '20.03.2026' },
   { id: 'cd11', candidateId: 'cc9', name: 'Резюме (PDF)', date: '18.03.2026' },
   { id: 'cd12', candidateId: 'cc10', name: 'Резюме (PDF)', date: '15.03.2026' },
+  { id: 'cd13', candidateId: 'cc11', name: 'Резюме (PDF)', date: '12.04.2026' },
+  { id: 'cd14', candidateId: 'cc12', name: 'Резюме (PDF)', date: '10.04.2026' },
+  { id: 'cd15', candidateId: 'cc15', name: 'Резюме (PDF)', date: '11.04.2026' },
+  { id: 'cd16', candidateId: 'cc18', name: 'Резюме (PDF)', date: '13.04.2026' },
+  { id: 'cd17', candidateId: 'cc20', name: 'Резюме (PDF)', date: '12.04.2026' },
+  { id: 'cd18', candidateId: 'cc23', name: 'Резюме (PDF)', date: '14.04.2026' },
 ]
 
 export function stageLabelForCandidate(row) {
@@ -144,11 +161,17 @@ export function getRecruitingCandidateById(id) {
   const base = REC_CYCLE_CANDIDATES.find((c) => c.id === id)
   if (!base) return null
   const extra = { ...DEFAULT_PROFILE, ...(PROFILE_EXTRA[id] || {}) }
-  const vac = extra.vacancyId ? getRecruitingVacancyById(extra.vacancyId) : null
+  const vid = base.vacancyId || 'vac-1'
+  extra.vacancyId = vid
+  const vac = getRecruitingVacancyById(vid)
   if (vac) {
     extra.vacancyTitle = vac.title
     extra.dept = vac.dept
     extra.region = vac.region
+    extra.recruiterName = vac.owner
+  } else {
+    extra.vacancyTitle = base.vacancyHint
+    extra.recruiterName = '—'
   }
   return { ...base, ...extra }
 }

@@ -134,6 +134,16 @@ const currentPage = computed(() => {
   const exact = flat.find(i => i.to === route.path)
   if (exact) return exact
   const meta = route.meta
+  if (route.name === 'recruiting-hiring-request' && meta?.parent) {
+    return {
+      name: meta.title ?? 'Создание заявки',
+      to: route.path,
+      parents: [
+        { name: 'Рекрутинг', to: '/recruiting' },
+        { name: 'Вакансии', to: { path: '/recruiting', query: { tab: 'vacancies' } } },
+      ],
+    }
+  }
   if (route.name === 'recruiting-vacancy' && route.params.id && meta?.parent) {
     const vac = getRecruitingVacancyById(String(route.params.id))
     return {

@@ -54,6 +54,15 @@ export default createRouter({
       meta: { title: 'Рекрутинг' },
     },
     {
+      path: '/recruiting/vacancies/new',
+      name: 'recruiting-hiring-request',
+      component: () => import('../views/RecruitingHiringRequest.vue'),
+      meta: {
+        title: 'Создание заявки',
+        parent: { name: 'Рекрутинг', to: '/recruiting' },
+      },
+    },
+    {
       path: '/recruiting/vacancies/:id',
       name: 'recruiting-vacancy',
       component: () => import('../views/RecruitingVacancyDetail.vue'),

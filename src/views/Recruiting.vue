@@ -11,6 +11,7 @@ import {
   TrendingUp,
   AlertCircle,
   Filter,
+  Plus,
 } from 'lucide-vue-next'
 import { UiPillTabs, UiPillTab, UiSearchField, UiButton, UiSelect } from '@/components/ui'
 import RecruitingDashboardCharts from '@/components/charts/RecruitingDashboardCharts.vue'
@@ -19,7 +20,7 @@ import {
   REC_AGING_VACANCIES,
   REC_VACANCIES,
 } from '@/data/recruitingDashboardDemo.js'
-import { formatCycleSalary } from '@/data/recruitingVacancyCycleDemo.js'
+import { REC_CYCLE_STAGES, formatCycleSalary } from '@/data/recruitingVacancyCycleDemo.js'
 import {
   REC_CANDIDATES_LIST,
   stageLabelForCandidate,
@@ -104,6 +105,10 @@ function goVacancy(row) {
   }
 }
 
+function onNewVacancy() {
+  router.push({ name: 'recruiting-hiring-request' })
+}
+
 function formatRecDate(iso) {
   if (!iso) return '—'
   const [y, m, d] = iso.split('-')
@@ -111,9 +116,37 @@ function formatRecDate(iso) {
 }
 
 const candSearchQuery = ref('')
+const candVacancyFilter = ref('all')
+const candPipelineFilter = ref('all')
+const candStageFilter = ref('all')
+
+const candVacancyOptions = computed(() => [
+  { value: 'all', label: 'Все вакансии' },
+  ...REC_VACANCIES.map((v) => ({ value: v.id, label: v.title })),
+])
+
+const candPipelineOptions = [
+  { value: 'all', label: 'Все статусы' },
+  { value: 'active', label: 'В подборе' },
+  { value: 'rejected', label: 'Отклонён' },
+]
+
+const candStageOptions = computed(() => [
+  { value: 'all', label: 'Все этапы' },
+  ...REC_CYCLE_STAGES.map((s) => ({ value: s.id, label: s.label })),
+])
 
 const filteredCandidates = computed(() => {
   let list = REC_CANDIDATES_LIST
+  if (candVacancyFilter.value !== 'all') {
+    list = list.filter((c) => c.vacancyId === candVacancyFilter.value)
+  }
+  if (candPipelineFilter.value !== 'all') {
+    list = list.filter((c) => c.pipeline === candPipelineFilter.value)
+  }
+  if (candStageFilter.value !== 'all') {
+    list = list.filter((c) => c.stageId === candStageFilter.value)
+  }
   const q = candSearchQuery.value.trim().toLowerCase()
   if (q) {
     list = list.filter((c) => {
@@ -272,6 +305,10 @@ function goCandidate(row) {
                   :options="vacStatusOptions"
                 />
               </label>
+              <UiButton variant="primary" size="sm" type="button" @click="onNewVacancy">
+                <Plus :size="14" stroke-width="2" aria-hidden="true" />
+                Новая вакансия
+              </UiButton>
             </div>
           </div>
 
@@ -327,7 +364,7 @@ function goCandidate(row) {
     <template v-else-if="recTab === 'candidates'">
       <div class="rec-tab-panel" aria-label="Кандидаты">
         <div class="card rec-vac-list-card">
-          <div class="rec-vac-toolbar" role="search" aria-label="Поиск по кандидатам">
+          <div class="rec-vac-toolbar" role="search" aria-label="Поиск и фильтры кандидатов">
             <div class="rec-vac-toolbar-left">
               <div class="rec-vac-search-wrap">
                 <UiSearchField
@@ -336,6 +373,38 @@ function goCandidate(row) {
                   autocomplete="off"
                 />
               </div>
+              <UiButton variant="secondary" size="sm" type="button" class="rec-cand-filters-btn">
+                <span class="rec-vac-filters-toggle-inner">
+                  <Filter :size="14" stroke-width="2" aria-hidden="true" />
+                  Фильтры
+                </span>
+              </UiButton>
+            </div>
+            <div class="rec-vac-toolbar-right rec-cand-toolbar-filters">
+              <label class="rec-vac-status-field">
+                <span class="visually-hidden">Вакансия</span>
+                <UiSelect
+                  v-model="candVacancyFilter"
+                  class="rec-vac-status-select rec-cand-filter-select"
+                  :options="candVacancyOptions"
+                />
+              </label>
+              <label class="rec-vac-status-field">
+                <span class="visually-hidden">Статус воронки</span>
+                <UiSelect
+                  v-model="candPipelineFilter"
+                  class="rec-vac-status-select rec-cand-filter-select"
+                  :options="candPipelineOptions"
+                />
+              </label>
+              <label class="rec-vac-status-field">
+                <span class="visually-hidden">Этап воронки</span>
+                <UiSelect
+                  v-model="candStageFilter"
+                  class="rec-vac-status-select rec-cand-filter-select"
+                  :options="candStageOptions"
+                />
+              </label>
             </div>
           </div>
           <div class="table-card rec-vac-table-outer">
@@ -372,7 +441,7 @@ function goCandidate(row) {
                   <td class="col-muted">{{ formatCycleDate(row.addedAt) }}</td>
                 </tr>
                 <tr v-if="filteredCandidates.length === 0">
-                  <td colspan="6" class="rec-vac-empty">Ничего не найдено — измените поиск.</td>
+                  <td colspan="6" class="rec-vac-empty">Ничего не найдено — измените поиск или фильтры.</td>
                 </tr>
               </tbody>
             </table>
@@ -549,6 +618,10 @@ function goCandidate(row) {
 .rec-vac-status-select {
   min-width: 170px;
   max-width: 100%;
+}
+
+.rec-cand-toolbar-filters .rec-cand-filter-select {
+  min-width: 140px;
 }
 
 .visually-hidden {

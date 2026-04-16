@@ -278,3 +278,154 @@ export const REC_AGING_VACANCIES = REC_VACANCIES.filter(
 export function getRecruitingVacancyById(id) {
   return REC_VACANCIES.find((v) => v.id === id) ?? null
 }
+
+/**
+ * Расширенные поля вкладки «Подробности» (демо). Сливаются с карточкой вакансии.
+ */
+const VACANCY_DETAIL_DEFAULTS = {
+  position: null,
+  grade: null,
+  priorityLabel: 'Нормальный',
+  openPositionsCount: 1,
+  requestReason: null,
+  salaryMin: null,
+  salaryMax: null,
+  experience: null,
+  legalEntity: null,
+  skills: null,
+  desiredStartDate: null,
+  note: null,
+  createdAt: '2026-01-15T09:30:00',
+  creator: null,
+  hiringFilled: undefined,
+  hiringTotal: undefined,
+  linkedVacancyTitle: null,
+  approvers: [],
+}
+
+/** Переопределения по id вакансии */
+const VACANCY_DETAIL_BY_ID = {
+  'vac-1': {
+    position: 'Senior Backend Engineer',
+    grade: 'Senior',
+    openPositionsCount: 1,
+    salaryMin: 28_000_000,
+    salaryMax: 48_000_000,
+    experience: '3+ лет',
+    requestReason: 'Расширение платформенной команды',
+    legalEntity: 'ООО «Техно Холдинг»',
+    skills: 'Go, PostgreSQL, gRPC, Docker/Kubernetes',
+    desiredStartDate: '2026-05-01',
+    note: 'Возможен гибрид: 2 дня в офисе.',
+    createdAt: '2026-01-12T11:20:00',
+    creator: 'Нилуфар Юсупова',
+    hiringTotal: 1,
+    approvers: [
+      {
+        id: 'ap-v1-1',
+        name: 'Хасанова Зарина',
+        initials: 'ХЗ',
+        line: 'Утверждено: Хасанова Зарина · 12.01.2026 14:05',
+      },
+      {
+        id: 'ap-v1-2',
+        name: 'Атаева Дилноза',
+        initials: 'АД',
+        line: 'Утверждено: Хасанова Зарина · 12.01.2026 14:05',
+      },
+    ],
+  },
+  'vac-2': {
+    position: 'HR Business Partner',
+    grade: 'Middle+',
+    openPositionsCount: 1,
+    salaryMin: 18_000_000,
+    salaryMax: 28_000_000,
+    experience: '4+ лет в HR',
+    requestReason: 'Усиление HR BP по направлению',
+    legalEntity: 'ООО «Техно Холдинг»',
+    skills: 'HR BP, метрики, 1:1, проектные наймы',
+    desiredStartDate: '2026-04-20',
+    note: 'Приоритет — опыт в IT.',
+    createdAt: '2026-01-08T09:15:00',
+    creator: 'Зарина Хасанова',
+    hiringTotal: 1,
+    approvers: [
+      {
+        id: 'ap-v2-1',
+        name: 'Юсупова Нилуфар',
+        initials: 'ЮН',
+        line: 'Утверждено: Юсупова Нилуфар · 09.01.2026 16:40',
+      },
+    ],
+  },
+  'vac-6': {
+    position: 'Senior Frontend Developer',
+    grade: 'Senior',
+    openPositionsCount: 2,
+    salaryMin: 24_000_000,
+    salaryMax: 45_000_000,
+    experience: '4+ лет (Vue/React)',
+    requestReason: 'Нехватка фронтенда, простаивают задачи по продукту',
+    legalEntity: 'ООО «Техно Холдинг»',
+    skills: 'Vue 3, TypeScript, Pinia, Vite, тесты (Vitest)',
+    desiredStartDate: '2026-05-15',
+    note: 'Стек согласован с командой платформы.',
+    createdAt: '2026-01-16T10:12:00',
+    creator: 'Нилуфар Юсупова',
+    hiringTotal: 2,
+    approvers: [
+      {
+        id: 'ap-v6-1',
+        name: 'Хасанова Зарина',
+        initials: 'ХЗ',
+        line: 'Утверждено: Хасанова Зарина · 17.01.2026 11:00',
+      },
+    ],
+  },
+  'vac-7': {
+    position: 'HR-менеджер',
+    grade: 'Middle',
+    openPositionsCount: 1,
+    salaryMin: 12_000_000,
+    salaryMax: 20_000_000,
+    requestReason: 'Заморозка бюджета до Q3',
+    note: 'Вакансия на паузе, кандидаты в резерве.',
+    hiringTotal: 1,
+    hiringFilled: 0,
+  },
+}
+
+function buildDefaultVacancyDetail(v) {
+  const n = Number(String(v.id).replace(/\D/g, '')) || 1
+  return {
+    ...VACANCY_DETAIL_DEFAULTS,
+    position: v.title,
+    creator: v.owner,
+    salaryMin: 12_000_000 + n * 800_000,
+    salaryMax: 22_000_000 + n * 1_200_000,
+    legalEntity: 'ООО «Техно Холдинг»',
+    createdAt: `2026-${String((n % 9) + 1).padStart(2, '0')}-${String((n % 27) + 1).padStart(2, '0')}T09:00:00`,
+    skills: n % 3 === 0 ? 'См. описание вакансии' : null,
+    experience: n % 2 === 0 ? 'По вакансии' : null,
+    requestReason: n % 4 === 0 ? 'Плановый найм' : null,
+    note: null,
+  }
+}
+
+/**
+ * Карточка вакансии + блок detail для вкладки «Подробности».
+ */
+export function getVacancyDetailView(id) {
+  const v = getRecruitingVacancyById(id)
+  if (!v) return null
+  const base = buildDefaultVacancyDetail(v)
+  const extra = VACANCY_DETAIL_BY_ID[id] ?? {}
+  const detail = { ...base, ...extra }
+  if (detail.linkedVacancyTitle == null) detail.linkedVacancyTitle = v.title
+  if (detail.hiringFilled === undefined) {
+    detail.hiringTotal = detail.hiringTotal ?? Math.max(1, detail.openPositionsCount ?? 1)
+    detail.hiringFilled = Math.min(v.inPipeline, detail.hiringTotal)
+  }
+  return { ...v, detail }
+}
