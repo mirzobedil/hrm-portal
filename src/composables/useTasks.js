@@ -4,11 +4,16 @@ import { createDemoTasks } from '@/data/tasksDemo'
 /** Bitta demo manba — ro‘yxat, kanban va detail sahifa uchun. */
 const tasks = ref(createDemoTasks())
 
+/** Заголовок в шапке (App) и везде, где нужен доступ без вызова composable. */
+export function resolveTaskById(rawId) {
+  const id = Number(rawId)
+  if (Number.isNaN(id)) return null
+  return tasks.value.find((t) => t.id === id) ?? null
+}
+
 export function useTasks() {
   function taskById(rawId) {
-    const id = Number(rawId)
-    if (Number.isNaN(id)) return null
-    return tasks.value.find(t => t.id === id) ?? null
+    return resolveTaskById(rawId)
   }
 
   function nextTaskId() {

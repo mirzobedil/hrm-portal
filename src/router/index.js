@@ -47,7 +47,30 @@ export default createRouter({
     { path: '/salary',     name: 'salary',      component: () => import('../views/Stub.vue'),      meta: { title: 'Зарплата'     } },
     { path: '/employees',  name: 'employees',   component: () => import('../views/Employees.vue'), meta: { title: 'Сотрудники'   } },
     { path: '/employees/:id', name: 'employee-profile', component: () => import('../views/EmployeeProfile.vue'), meta: { title: 'Профиль сотрудника', parent: { name: 'Сотрудники', to: '/employees' } } },
-    { path: '/recruiting', name: 'recruiting',  component: () => import('../views/Recruiting.vue'), meta: { title: 'Рекрутинг'    } },
+    {
+      path: '/recruiting',
+      name: 'recruiting',
+      component: () => import('../views/Recruiting.vue'),
+      meta: { title: 'Рекрутинг' },
+    },
+    {
+      path: '/recruiting/vacancies/:id',
+      name: 'recruiting-vacancy',
+      component: () => import('../views/RecruitingVacancyDetail.vue'),
+      meta: {
+        title: 'Вакансия',
+        parent: { name: 'Рекрутинг', to: '/recruiting' },
+      },
+    },
+    {
+      path: '/recruiting/candidates/:id',
+      name: 'recruiting-candidate',
+      component: () => import('../views/CandidateProfile.vue'),
+      meta: {
+        title: 'Кандидат',
+        parent: { name: 'Рекрутинг', to: '/recruiting' },
+      },
+    },
     { path: '/reports',    name: 'reports',     component: () => import('../views/Stub.vue'),      meta: { title: 'Отчёты'       } },
     { path: '/structure',  name: 'structure',   component: () => import('../views/Stub.vue'),      meta: { title: 'Структура'    } },
     { path: '/users',      name: 'users',       component: () => import('../views/Stub.vue'),      meta: { title: 'Пользователи' } },

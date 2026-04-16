@@ -1,8 +1,7 @@
 <script setup>
 import { computed, watch, ref, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft } from 'lucide-vue-next'
-import { UiButton, UiTextarea, UiSelect } from '@/components/ui'
+import { UiTextarea, UiSelect } from '@/components/ui'
 import { useTasks } from '@/composables/useTasks'
 import { todayIsoLocal } from '@/data/tasksDemo'
 
@@ -35,10 +34,6 @@ watch(
   },
   { immediate: true },
 )
-
-function goBack() {
-  router.push({ name: 'tasks' })
-}
 
 function fmtDue(iso) {
   const [y, m, d] = iso.split('-')
@@ -79,35 +74,14 @@ function addComment() {
   newComment.value = ''
 }
 
-function markComplete() {
-  const t = task.value
-  if (t) t.status = 'done'
-}
 </script>
 
 <template>
   <div v-if="task" class="td-page">
-    <button type="button" class="td-back" @click="goBack">
-      <ArrowLeft :size="16" stroke-width="1.75" />
-      К задачам
-    </button>
-
     <div class="td-layout">
       <main class="td-main">
         <header class="td-header">
-          <div class="td-header-text">
-            <h1 class="td-title" :class="{ 'td-title--done': task.status === 'done' }">{{ task.title }}</h1>
-            <p class="td-summary">{{ task.summary }}</p>
-          </div>
-          <UiButton
-            v-if="task.status !== 'done'"
-            type="button"
-            variant="primary"
-            class="td-complete-btn"
-            @click="markComplete"
-          >
-            Завершить
-          </UiButton>
+          <p class="td-summary" :class="{ 'td-summary--done': task.status === 'done' }">{{ task.summary }}</p>
         </header>
 
         <section class="td-section">
@@ -196,25 +170,6 @@ function markComplete() {
   box-sizing: border-box;
 }
 
-.td-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  color: #666;
-  cursor: pointer;
-  width: fit-content;
-  transition: color 0.15s;
-}
-.td-back:hover {
-  color: #1a1a1a;
-}
-
 .td-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 272px;
@@ -227,42 +182,19 @@ function markComplete() {
 }
 
 .td-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
   margin-bottom: 28px;
 }
 
-.td-header-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.td-title {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: #0d0d0d;
-  letter-spacing: -0.04em;
-  line-height: 1.25;
-}
-
-.td-title--done {
-  text-decoration: line-through;
-  color: #888;
-}
-
 .td-summary {
-  margin: 10px 0 0;
+  margin: 0;
   font-size: 14px;
   color: #666;
   line-height: 1.5;
 }
 
-.td-complete-btn {
-  flex-shrink: 0;
+.td-summary--done {
+  text-decoration: line-through;
+  color: #888;
 }
 
 /* ── O‘ng sidebar (Linear) ── */

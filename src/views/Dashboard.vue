@@ -106,7 +106,7 @@ const hrTodayDateTitle = computed(() => {
 // ── ADMIN mock data ───────────────────────────────────────────────────────
 const recentActivity = [
   { actor: 'Руслан Камолов',  action: 'одобрил заявку',     subject: 'Малика Рахимова',  time: '10 мин. назад', icon: 'approved'  },
-  { actor: 'Зарина Хасанова', action: 'подтвердила приказ', subject: 'Mirzo Bedil',      time: '1 ч. назад',    icon: 'confirmed' },
+  { actor: 'Зарина Хасанова', action: 'подтвердила приказ', subject: 'Мирзо Бедил',      time: '1 ч. назад',    icon: 'confirmed' },
   { actor: 'Сардор Тошматов', action: 'подал заявку',       subject: null,               time: '2 ч. назад',    icon: 'pending'   },
   { actor: 'Руслан Камолов',  action: 'отклонил заявку',    subject: 'Жасур Мирзаев',   time: '4 ч. назад',    icon: 'rejected'  },
   { actor: 'Зарина Хасанова', action: 'создала приказ',     subject: 'Нилуфар Юсупова', time: 'вчера',         icon: 'confirmed' },

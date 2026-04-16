@@ -9,7 +9,7 @@ import { MANAGER_TEAM, LINE_MANAGER } from '@/constants/vacation'
  * position — грейд / роль: ведущий и главный специалист, эксперт и т.д.
  */
 export const EMPLOYEE_DATA = {
-  'Mirzo Bedil': {
+  'Мирзо Бедил': {
     dept: 'ИТ',
     subdept: 'Разработка программного обеспечения',
     position: 'Ведущий специалист',
@@ -244,14 +244,14 @@ export function dashboardHrUpcomingRows(requests, { limit = 8 } = {}) {
  */
 export function createInitialVacationRequests() {
   return [
-    { id: 1, employee: 'Mirzo Bedil', from: '2026-04-15', to: '2026-04-23', days: 9, type: 'Ежегодный', status: 'approved',
+    { id: 1, employee: 'Мирзо Бедил', from: '2026-04-15', to: '2026-04-23', days: 9, type: 'Ежегодный', status: 'approved',
       activity: [
-        { actor: 'Mirzo Bedil', role: 'staff', action: 'submitted', time: new Date('2026-04-04T09:15:00'), note: 'Плановый ежегодный отпуск' },
+        { actor: 'Мирзо Бедил', role: 'staff', action: 'submitted', time: new Date('2026-04-04T09:15:00'), note: 'Плановый ежегодный отпуск' },
         { actor: 'Руслан Камолов', role: 'manager', action: 'approved', time: new Date('2026-04-04T14:30:00'), note: '' },
       ] },
     { id: 2, employee: 'Сардор Тошматов', from: '2026-04-18', to: '2026-04-26', days: 9, type: 'Больничный', status: 'pending_manager',
       comment:
-        'Пересечение с отпусками коллег (в этот период уже утверждены отпуска Mirzo Bedil и Малики Рахимовой).',
+        'Пересечение с отпусками коллег (в этот период уже утверждены отпуска Мирзо Бедил и Малики Рахимовой).',
       activity: [
         { actor: 'Сардор Тошматов', role: 'staff', action: 'submitted', time: new Date('2026-04-06T08:20:00'), note: '' },
       ] },
@@ -324,10 +324,10 @@ export function createInitialVacationRequests() {
         { actor: 'Малика Рахимова', role: 'staff', action: 'submitted', time: new Date('2026-04-05T11:00:00'), note: 'Перенос части дней' },
         { actor: 'Руслан Камолов', role: 'manager', action: 'approved', time: new Date('2026-04-06T14:00:00'), note: '' },
       ] },
-    { id: 18, employee: 'Mirzo Bedil', from: '2026-08-01', to: '2026-08-07', days: 7, type: 'Ежегодный', status: 'rejected',
+    { id: 18, employee: 'Мирзо Бедил', from: '2026-08-01', to: '2026-08-07', days: 7, type: 'Ежегодный', status: 'rejected',
       rejectReason: 'Пик нагрузки в отделе, перенесите на после релиза',
       activity: [
-        { actor: 'Mirzo Bedil', role: 'staff', action: 'submitted', time: new Date('2026-04-08T09:00:00'), note: 'Летний отпуск' },
+        { actor: 'Мирзо Бедил', role: 'staff', action: 'submitted', time: new Date('2026-04-08T09:00:00'), note: 'Летний отпуск' },
         { actor: 'Руслан Камолов', role: 'manager', action: 'rejected', time: new Date('2026-04-09T16:00:00'), note: 'Пик нагрузки в отделе, перенесите на после релиза' },
       ] },
     { id: 19, employee: 'Сардор Тошматов', from: '2026-09-15', to: '2026-09-17', days: 3, type: 'За свой счёт', status: 'rejected',
@@ -337,13 +337,13 @@ export function createInitialVacationRequests() {
         { actor: 'Руслан Камолов', role: 'manager', action: 'rejected', time: new Date('2026-04-08T10:15:00'), note: 'Совпадает с запланированным релизом' },
       ] },
     /** Пересечение загрузки команды: в модалке руководителя — блок «План загрузки» (несколько коллег с approved/planned). */
-    { id: 20, employee: 'Mirzo Bedil', from: '2026-06-05', to: '2026-06-10', days: 6, type: 'Ежегодный', status: 'pending_manager',
+    { id: 20, employee: 'Мирзо Бедил', from: '2026-06-05', to: '2026-06-10', days: 6, type: 'Ежегодный', status: 'pending_manager',
       comment: 'Пересекается с плановым отпуском руководителя (12 дн. с 03.06) — высокая нагрузка на срок.',
       activity: [
-        { actor: 'Mirzo Bedil', role: 'staff', action: 'submitted', time: new Date('2026-04-09T10:00:00'), note: '' },
+        { actor: 'Мирзо Бедил', role: 'staff', action: 'submitted', time: new Date('2026-04-09T10:00:00'), note: '' },
       ] },
     { id: 21, employee: 'Малика Рахимова', from: '2026-04-17', to: '2026-04-20', days: 4, type: 'Ежегодный', status: 'pending_manager',
-      comment: 'Даты пересекаются с уже утверждённым отпуском Mirzo Bedil в команде.',
+      comment: 'Даты пересекаются с уже утверждённым отпуском Мирзо Бедил в команде.',
       activity: [
         { actor: 'Малика Рахимова', role: 'staff', action: 'submitted', time: new Date('2026-04-09T14:30:00'), note: '' },
       ] },

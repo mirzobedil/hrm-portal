@@ -4,7 +4,7 @@
 export const EMPLOYEES = [
   {
     id: 1,
-    name: 'Mirzo Bedil',
+    name: 'Мирзо Бедил',
     dept: 'ИТ',
     subdept: 'Разработка программного обеспечения',
     position: 'Ведущий специалист',

@@ -8,7 +8,10 @@ import {
   Users, FileBarChart2, Building2, UserCog, Settings, ListChecks, UserPlus,
   ListTodo,
 } from 'lucide-vue-next'
-import { UiIconButton } from '@/components/ui'
+import { UiIconButton, UiButton } from '@/components/ui'
+import { getRecruitingVacancyById } from '@/data/recruitingDashboardDemo.js'
+import { getRecruitingCandidateById } from '@/data/recruitingCandidatesDemo.js'
+import { resolveTaskById } from '@/composables/useTasks.js'
 
 /** Demo: переключатель ролей в сайдбаре (в проде — из сессии) */
 const roles = [
@@ -24,7 +27,7 @@ const activeRole = ref('staff')
  * В проде роль и пользователь приходят из сессии независимо; здесь — 1:1 для удобства демо.
  */
 const ROLE_SESSION_USERS = {
-  staff:   { name: 'Mirzo Bedil',       initials: 'MB', isTopLevel: true },
+  staff:   { name: 'Мирзо Бедил',       initials: 'МБ', isTopLevel: true },
   manager: { name: 'Руслан Камолов',    initials: 'РК', isTopLevel: true },
   hr:      { name: 'Зарина Хасанова',   initials: 'ЗХ', isTopLevel: false },
   admin:   { name: 'Дилноза Атаева',    initials: 'ДА', isTopLevel: true },
@@ -131,9 +134,74 @@ const currentPage = computed(() => {
   const exact = flat.find(i => i.to === route.path)
   if (exact) return exact
   const meta = route.meta
+  if (route.name === 'recruiting-vacancy' && route.params.id && meta?.parent) {
+    const vac = getRecruitingVacancyById(String(route.params.id))
+    return {
+      name: vac?.title ?? meta.title ?? 'Вакансия',
+      to: route.path,
+      parents: [
+        { name: 'Рекрутинг', to: '/recruiting' },
+        { name: 'Вакансии', to: { path: '/recruiting', query: { tab: 'vacancies' } } },
+      ],
+    }
+  }
+  if (route.name === 'recruiting-candidate' && route.params.id && meta?.parent) {
+    const cand = getRecruitingCandidateById(String(route.params.id))
+    const vacId = route.query.vacancy != null && route.query.vacancy !== '' ? String(route.query.vacancy) : null
+    const vacFromQuery = vacId ? getRecruitingVacancyById(vacId) : null
+    if (vacId && vacFromQuery) {
+      return {
+        name: cand?.name ?? meta.title ?? 'Кандидат',
+        to: route.path,
+        parents: [
+          { name: 'Рекрутинг', to: '/recruiting' },
+          { name: vacFromQuery.title, to: { name: 'recruiting-vacancy', params: { id: vacId } } },
+        ],
+      }
+    }
+    return {
+      name: cand?.name ?? meta.title ?? 'Кандидат',
+      to: route.path,
+      parents: [
+        { name: 'Рекрутинг', to: '/recruiting' },
+        { name: 'Кандидаты', to: { path: '/recruiting', query: { tab: 'candidates' } } },
+      ],
+    }
+  }
+  if (route.name === 'task-detail' && route.params.id && meta?.parent) {
+    const task = resolveTaskById(route.params.id)
+    return {
+      name: task?.title ?? meta.title ?? 'Задача',
+      to: route.path,
+      parent: meta.parent,
+    }
+  }
   if (meta?.parent) return { name: meta.title || 'Страница', to: route.path, parent: meta.parent }
   return flat[0]
 })
+
+/** Цепочка ссылок перед заголовком страницы (один `parent` или несколько `parents`). */
+const breadcrumbAncestors = computed(() => {
+  const cp = currentPage.value
+  if (cp.parents?.length) return cp.parents
+  if (cp.parent) return [cp.parent]
+  return []
+})
+
+const taskDetailTask = computed(() =>
+  route.name === 'task-detail' && route.params.id
+    ? resolveTaskById(route.params.id)
+    : null,
+)
+
+const showTaskCompleteInHeader = computed(
+  () => taskDetailTask.value && taskDetailTask.value.status !== 'done',
+)
+
+function completeTaskFromHeader() {
+  const t = taskDetailTask.value
+  if (t) t.status = 'done'
+}
 
 // ── Notifications ────────────────────────────────────────────────────────
 const allNotifications = ref([
@@ -348,13 +416,23 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
               <nav class="breadcrumb">
                 <Home :size="12" stroke-width="1.5" class="breadcrumb-home" />
                 <span class="breadcrumb-sep">/</span>
-                <template v-if="currentPage.parent">
-                  <RouterLink :to="currentPage.parent.to" class="breadcrumb-item breadcrumb-link">{{ currentPage.parent.name }}</RouterLink>
+                <template v-for="(seg, idx) in breadcrumbAncestors" :key="idx">
+                  <RouterLink :to="seg.to" class="breadcrumb-item breadcrumb-link">{{ seg.name }}</RouterLink>
                   <span class="breadcrumb-sep">/</span>
                 </template>
                 <span class="breadcrumb-item active">{{ currentPage.name }}</span>
               </nav>
               <h1 class="page-title">{{ currentPage.name }}</h1>
+            </div>
+            <div v-if="showTaskCompleteInHeader" class="page-header-actions">
+              <UiButton
+                type="button"
+                variant="primary"
+                class="page-header-task-complete"
+                @click="completeTaskFromHeader"
+              >
+                Завершить
+              </UiButton>
             </div>
           </div>
         </div>
@@ -583,9 +661,26 @@ body {
   width: 100%;
   max-width: 1080px;
   min-width: 0;
-  display: flex; align-items: flex-end; justify-content: space-between;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
 }
-.page-header-left { display: flex; flex-direction: column; }
+.page-header-left {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.page-header-actions {
+  flex-shrink: 0;
+  padding-bottom: 2px;
+}
+
+.page-header-task-complete {
+  flex-shrink: 0;
+}
 
 .breadcrumb { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .breadcrumb-home { color: #999; }
@@ -604,6 +699,7 @@ body {
   font-weight: 600;
   color: #1a1a1a;
   letter-spacing: -0.3px;
+  min-width: 0;
 }
 
 .main-content {

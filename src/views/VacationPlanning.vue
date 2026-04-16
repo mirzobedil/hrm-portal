@@ -13,7 +13,7 @@ import { peakDeptLoadFromPlanning } from '@/utils/vacationDepartmentLoad'
 
 // ── Static employee directory ─────────────────────────────────────────────
 const EMPLOYEES = [
-  { id: 1, name: 'Mirzo Bedil',      dept: 'ИТ',       subdept: 'Разработка программного обеспечения', position: 'Ведущий специалист' },
+  { id: 1, name: 'Мирзо Бедил',      dept: 'ИТ',       subdept: 'Разработка программного обеспечения', position: 'Ведущий специалист' },
   { id: 2, name: 'Сардор Тошматов',  dept: 'ИТ',       subdept: 'Разработка программного обеспечения', position: 'Главный специалист' },
   { id: 3, name: 'Малика Рахимова',  dept: 'ИТ',       subdept: 'Обеспечение качества и тестирование', position: 'Эксперт' },
   { id: 4, name: 'Нилуфар Юсупова',  dept: 'HR',       subdept: 'Подбор и адаптация персонала',       position: 'Ведущий специалист' },

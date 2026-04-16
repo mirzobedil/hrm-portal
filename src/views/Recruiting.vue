@@ -1,216 +1,385 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
-  Briefcase, Users, CalendarClock, FileSignature, Plus,
+  Briefcase,
+  Users,
+  CalendarClock,
+  FileSignature,
+  Timer,
+  TrendingDown,
+  TrendingUp,
+  AlertCircle,
+  Filter,
 } from 'lucide-vue-next'
-import { UiSearchField, UiSelect } from '@/components/ui'
+import { UiPillTabs, UiPillTab, UiSearchField, UiButton, UiSelect } from '@/components/ui'
+import RecruitingDashboardCharts from '@/components/charts/RecruitingDashboardCharts.vue'
 import {
-  VACANCIES,
-  CANDIDATES,
-  INTERVIEWS_WEEK,
-  VACANCY_STATUS,
-  CANDIDATE_STAGE,
-} from '@/constants/recruiting'
+  REC_DASH_KPIS,
+  REC_AGING_VACANCIES,
+  REC_VACANCIES,
+} from '@/data/recruitingDashboardDemo.js'
+import { formatCycleSalary } from '@/data/recruitingVacancyCycleDemo.js'
+import {
+  REC_CANDIDATES_LIST,
+  stageLabelForCandidate,
+  pipelineLabel,
+  formatCycleDate,
+} from '@/data/recruitingCandidatesDemo.js'
 
-const searchVacancy = ref('')
-const searchCandidate = ref('')
-const stageFilter = ref('')
+const REC_TAB_IDS = ['dashboard', 'vacancies', 'candidates']
 
-const openVacanciesCount = computed(() => VACANCIES.filter(v => v.status === 'open').length)
+const recTab = ref('dashboard')
+const route = useRoute()
+const router = useRouter()
 
-const activeCandidatesCount = computed(() =>
-  CANDIDATES.filter(c => c.stage !== 'rejected' && c.stage !== 'hired').length,
-)
-
-const offersPending = computed(() => CANDIDATES.filter(c => c.stage === 'offer').length)
-
-const pipelineStages = [
-  { key: 'new', label: 'Новый' },
-  { key: 'screening', label: 'Скрининг' },
-  { key: 'interview', label: 'Интервью' },
-  { key: 'offer', label: 'Оффер' },
-  { key: 'hired', label: 'Принят' },
-  { key: 'rejected', label: 'Отказ' },
-]
-
-const pipelineCounts = computed(() => {
-  const m = Object.fromEntries(pipelineStages.map(s => [s.key, 0]))
-  for (const c of CANDIDATES) {
-    if (m[c.stage] !== undefined) m[c.stage]++
+function syncRecTabFromRoute() {
+  if (route.path !== '/recruiting') return
+  const t = route.query.tab
+  if (typeof t === 'string' && REC_TAB_IDS.includes(t)) {
+    if (recTab.value !== t) recTab.value = t
+  } else if (recTab.value !== 'dashboard') {
+    recTab.value = 'dashboard'
   }
-  return m
+}
+
+onMounted(syncRecTabFromRoute)
+watch(() => [route.path, route.query.tab], syncRecTabFromRoute)
+
+watch(recTab, (tab) => {
+  if (route.path !== '/recruiting') return
+  const want = tab === 'dashboard' ? undefined : tab
+  const have = route.query.tab === undefined ? undefined : String(route.query.tab)
+  if (have === want || (have === undefined && tab === 'dashboard')) return
+  router.replace({ path: '/recruiting', query: tab === 'dashboard' ? {} : { tab } })
 })
 
-const vacanciesFiltered = computed(() => {
-  const q = searchVacancy.value.trim().toLowerCase()
-  return VACANCIES.filter(v =>
-    !q || `${v.title} ${v.dept} ${v.owner}`.toLowerCase().includes(q),
-  )
-})
+const kpis = REC_DASH_KPIS
+const agingVacancies = REC_AGING_VACANCIES
+const allVacancies = REC_VACANCIES
 
-const candidatesFiltered = computed(() => {
-  const q = searchCandidate.value.trim().toLowerCase()
-  return CANDIDATES.filter(c => {
-    if (stageFilter.value && c.stage !== stageFilter.value) return false
-    if (!q) return true
-    return `${c.name} ${c.vacancy} ${c.source}`.toLowerCase().includes(q)
-  }).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-})
+const vacSearchQuery = ref('')
+const vacStatusFilter = ref('all')
 
-const stageFilterOptions = [
-  { value: '', label: 'Все этапы' },
-  ...pipelineStages.map(s => ({ value: s.key, label: s.label })),
+const vacStatusOptions = [
+  { value: 'all', label: 'Все статусы' },
+  { value: 'open', label: 'Открыта' },
+  { value: 'paused', label: 'На паузе' },
+  { value: 'closed', label: 'Закрыта' },
 ]
+
+const filteredVacancies = computed(() => {
+  let list = allVacancies
+  if (vacStatusFilter.value !== 'all') {
+    list = list.filter((v) => v.status === vacStatusFilter.value)
+  }
+  const q = vacSearchQuery.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter((v) => {
+      const blob = `${v.title} ${v.dept} ${v.region} ${v.owner} ${v.statusLabel}`.toLowerCase()
+      return blob.includes(q)
+    })
+  }
+  return list
+})
+
+const fillDeltaAbs = computed(() => Math.abs(kpis.avgTimeToFillDelta))
+const fillDeltaPositive = computed(() => kpis.avgTimeToFillDelta > 0)
+
+function vacancyDetailTo(row) {
+  return {
+    name: 'recruiting-vacancy',
+    params: { id: row.id },
+    query: { tab: 'vacancies' },
+  }
+}
+
+/** Переход в карточку: в истории перед деталю остаётся /recruiting?tab=vacancies — «Назад» открывает вкладку «Вакансии». */
+function goVacancy(row) {
+  const target = vacancyDetailTo(row)
+  if (route.path === '/recruiting' && route.query.tab !== 'vacancies') {
+    router.replace({ path: '/recruiting', query: { tab: 'vacancies' } }).then(() => router.push(target))
+  } else {
+    router.push(target)
+  }
+}
+
+function formatRecDate(iso) {
+  if (!iso) return '—'
+  const [y, m, d] = iso.split('-')
+  return `${d}.${m}.${y}`
+}
+
+const candSearchQuery = ref('')
+
+const filteredCandidates = computed(() => {
+  let list = REC_CANDIDATES_LIST
+  const q = candSearchQuery.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter((c) => {
+      const blob = `${c.name} ${c.email} ${c.phone} ${c.vacancyTitle ?? ''} ${stageLabelForCandidate(c)}`.toLowerCase()
+      return blob.includes(q)
+    })
+  }
+  return list
+})
+
+function goCandidate(row) {
+  const target = { name: 'recruiting-candidate', params: { id: row.id } }
+  if (route.path === '/recruiting' && route.query.tab !== 'candidates') {
+    router.replace({ path: '/recruiting', query: { tab: 'candidates' } }).then(() => router.push(target))
+  } else {
+    router.push(target)
+  }
+}
 </script>
 
 <template>
   <div class="recruiting">
-    <!-- Stats -->
-    <div class="rec-stats">
-      <div class="card rec-stat">
-        <div class="rec-stat-top">
-          <span class="rec-stat-label">Открытые вакансии</span>
-          <Briefcase :size="15" stroke-width="1.5" class="rec-stat-ic" />
-        </div>
-        <div class="rec-stat-value">{{ openVacanciesCount }}</div>
-      </div>
-      <div class="card rec-stat">
-        <div class="rec-stat-top">
-          <span class="rec-stat-label">Активные кандидаты</span>
-          <Users :size="15" stroke-width="1.5" class="rec-stat-ic" />
-        </div>
-        <div class="rec-stat-value rec-stat-value--teal">{{ activeCandidatesCount }}</div>
-      </div>
-      <div class="card rec-stat">
-        <div class="rec-stat-top">
-          <span class="rec-stat-label">Собеседования (неделя)</span>
-          <CalendarClock :size="15" stroke-width="1.5" class="rec-stat-ic" />
-        </div>
-        <div class="rec-stat-value">{{ INTERVIEWS_WEEK.length }}</div>
-      </div>
-      <div class="card rec-stat">
-        <div class="rec-stat-top">
-          <span class="rec-stat-label">Офферы на решении</span>
-          <FileSignature :size="15" stroke-width="1.5" class="rec-stat-ic" />
-        </div>
-        <div class="rec-stat-value rec-stat-value--amber">{{ offersPending }}</div>
-      </div>
-    </div>
+    <UiPillTabs v-model="recTab" class="rec-page-tabs">
+      <UiPillTab id="dashboard">Дашборд</UiPillTab>
+      <UiPillTab id="vacancies">Вакансии</UiPillTab>
+      <UiPillTab id="candidates">Кандидаты</UiPillTab>
+    </UiPillTabs>
 
-    <!-- Pipeline funnel -->
-    <div class="card rec-funnel">
-      <h3 class="rec-funnel-title">Воронка подбора</h3>
-      <div class="rec-funnel-row">
-        <div
-          v-for="s in pipelineStages"
-          :key="s.key"
-          class="rec-funnel-cell"
-        >
-          <span class="rec-funnel-count">{{ pipelineCounts[s.key] ?? 0 }}</span>
-          <span class="rec-funnel-label">{{ s.label }}</span>
+    <template v-if="recTab === 'dashboard'">
+      <div class="rec-kpi-grid">
+        <div class="card rec-kpi">
+          <div class="rec-kpi-top">
+            <span class="rec-kpi-label">Открытые вакансии</span>
+            <Briefcase :size="15" stroke-width="1.5" class="rec-kpi-ic" aria-hidden="true" />
+          </div>
+          <div class="rec-kpi-val">{{ kpis.openVacancies }}</div>
+        </div>
+        <div class="card rec-kpi">
+          <div class="rec-kpi-top">
+            <span class="rec-kpi-label">Активные кандидаты</span>
+            <Users :size="15" stroke-width="1.5" class="rec-kpi-ic" aria-hidden="true" />
+          </div>
+          <div class="rec-kpi-val rec-kpi-val--teal">{{ kpis.activeCandidates }}</div>
+        </div>
+        <div class="card rec-kpi">
+          <div class="rec-kpi-top">
+            <span class="rec-kpi-label">Интервью на этой неделе</span>
+            <CalendarClock :size="15" stroke-width="1.5" class="rec-kpi-ic" aria-hidden="true" />
+          </div>
+          <div class="rec-kpi-val">{{ kpis.interviewsWeek }}</div>
+        </div>
+        <div class="card rec-kpi">
+          <div class="rec-kpi-top">
+            <span class="rec-kpi-label">Ожидающие офферы</span>
+            <FileSignature :size="15" stroke-width="1.5" class="rec-kpi-ic" aria-hidden="true" />
+          </div>
+          <div class="rec-kpi-val rec-kpi-val--amber">{{ kpis.offersPending }}</div>
+        </div>
+        <div class="card rec-kpi">
+          <div class="rec-kpi-top">
+            <span class="rec-kpi-label">Среднее время закрытия</span>
+            <Timer :size="15" stroke-width="1.5" class="rec-kpi-ic" aria-hidden="true" />
+          </div>
+          <div class="rec-kpi-val">{{ kpis.avgTimeToFillDays }} <span class="rec-kpi-unit">дн.</span></div>
+          <div
+            class="rec-kpi-delta"
+            :class="fillDeltaPositive ? 'rec-kpi-delta--warn' : 'rec-kpi-delta--ok'"
+          >
+            <TrendingUp v-if="fillDeltaPositive" :size="14" stroke-width="2" aria-hidden="true" />
+            <TrendingDown v-else :size="14" stroke-width="2" aria-hidden="true" />
+            <span v-if="fillDeltaPositive">К месяцу: +{{ fillDeltaAbs }} дн.</span>
+            <span v-else>К месяцу: −{{ fillDeltaAbs }} дн.</span>
+          </div>
+        </div>
+        <div class="card rec-kpi">
+          <div class="rec-kpi-top">
+            <span class="rec-kpi-label">Кандидат → оффер (оценка)</span>
+          </div>
+          <div class="rec-kpi-val">{{ kpis.offerConversionPct }}%</div>
+          <p class="rec-kpi-note">Конверсия зависит от воронки и качества источников</p>
         </div>
       </div>
-    </div>
 
-    <div class="rec-two-col">
-      <!-- Vacancies -->
-      <div class="card rec-panel">
-        <div class="rec-panel-head">
-          <h3 class="rec-panel-title">Вакансии</h3>
-          <button type="button" class="btn-recruit" disabled title="Демо">
-            <Plus :size="14" stroke-width="2" /> Новая вакансия
-          </button>
+      <RecruitingDashboardCharts />
+
+      <div class="card rec-aging">
+        <div class="rec-aging-pad">
+          <div class="rec-aging-head">
+            <h3 class="rec-aging-title">Долго открытые вакансии</h3>
+            <span class="rec-aging-badge">
+              <AlertCircle :size="14" stroke-width="2" aria-hidden="true" />
+              Aging
+            </span>
+          </div>
+          <p class="rec-aging-hint">Позиции, требующие контроля (по дням открытия)</p>
         </div>
-        <div class="rec-toolbar">
-          <UiSearchField v-model="searchVacancy" class="rec-search" placeholder="Поиск..." autocomplete="off" />
-        </div>
-        <div class="table-wrap">
+        <div class="table-card">
           <table class="data-table">
             <thead>
               <tr>
-                <th>Вакансия</th>
-                <th>Отдел</th>
-                <th>Статус</th>
-                <th class="align-right">Отклики</th>
-                <th>Рекрутер</th>
-                <th>Обновлено</th>
+                <th scope="col">Вакансия</th>
+                <th scope="col">Подразделение</th>
+                <th scope="col">Рекрутер</th>
+                <th scope="col" class="align-right">Дней открыта</th>
+                <th scope="col" class="align-right">Статус</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="v in vacanciesFiltered" :key="v.id">
-                <td class="td-strong">{{ v.title }}</td>
-                <td class="col-muted">{{ v.dept }}</td>
-                <td>
-                  <span :class="['rs-pill', VACANCY_STATUS[v.status]?.class]">
-                    {{ VACANCY_STATUS[v.status]?.label }}
-                  </span>
+              <tr
+                v-for="row in agingVacancies"
+                :key="row.id"
+                class="row-clickable"
+                @click="goVacancy(row)"
+              >
+                <td class="col-name">{{ row.title }}</td>
+                <td class="col-muted">{{ row.dept }}</td>
+                <td>{{ row.owner }}</td>
+                <td class="align-right rec-aging-days-cell">{{ row.daysOpen }} дн.</td>
+                <td class="align-right">
+                  <span :class="['rec-vac-status-pill', `rec-vac-status-pill--${row.status}`]">{{
+                    row.statusLabel
+                  }}</span>
                 </td>
-                <td class="align-right">{{ v.applicants }}</td>
-                <td>{{ v.owner }}</td>
-                <td class="col-muted">{{ v.updatedAt }}</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
+    </template>
 
-      <!-- Interviews this week -->
-      <div class="card rec-panel rec-panel--aside">
-        <h3 class="rec-panel-title">Собеседования на неделе</h3>
-        <ul class="rec-interviews">
-          <li v-for="it in INTERVIEWS_WEEK" :key="it.id" class="rec-int-item">
-            <div class="rec-int-main">
-              <span class="rec-int-name">{{ it.candidate }}</span>
-              <span class="rec-int-vac">{{ it.vacancy }}</span>
-            </div>
-            <div class="rec-int-meta">
-              {{ it.when }} · {{ it.format }}
-            </div>
-          </li>
-        </ul>
-      </div>
-    </div>
-
-    <!-- Candidates -->
-    <div class="card rec-panel rec-panel--full">
-      <div class="rec-panel-head">
-        <h3 class="rec-panel-title">Кандидаты</h3>
-        <label class="rec-filter">
-          <span class="visually-hidden">Этап</span>
-          <UiSelect v-model="stageFilter" class="rec-select" :options="stageFilterOptions" />
-        </label>
-      </div>
-      <div class="rec-toolbar">
-        <UiSearchField v-model="searchCandidate" class="rec-search" placeholder="Имя, вакансия, источник..." autocomplete="off" />
-      </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Кандидат</th>
-              <th>Вакансия</th>
-              <th>Этап</th>
-              <th>Источник</th>
-              <th>Обновлено</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in candidatesFiltered" :key="c.id">
-              <td class="td-strong">{{ c.name }}</td>
-              <td>{{ c.vacancy }}</td>
-              <td>
-                <span :class="['st-pill', CANDIDATE_STAGE[c.stage]?.class]">
-                  {{ CANDIDATE_STAGE[c.stage]?.label }}
+    <template v-else-if="recTab === 'vacancies'">
+      <div class="rec-tab-panel" aria-label="Вакансии">
+        <div class="card rec-vac-list-card">
+          <div class="rec-vac-toolbar" role="search" aria-label="Поиск и фильтры вакансий">
+            <div class="rec-vac-toolbar-left">
+              <div class="rec-vac-search-wrap">
+                <UiSearchField
+                  v-model="vacSearchQuery"
+                  placeholder="Вакансия, отдел, регион, рекрутер…"
+                  autocomplete="off"
+                />
+              </div>
+              <UiButton variant="secondary" size="sm" type="button" class="rec-vac-filters-placeholder">
+                <span class="rec-vac-filters-toggle-inner">
+                  <Filter :size="14" stroke-width="2" aria-hidden="true" />
+                  Фильтры
                 </span>
-              </td>
-              <td class="col-muted">{{ c.source }}</td>
-              <td class="col-muted">{{ c.updatedAt }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <p v-if="candidatesFiltered.length === 0" class="rec-empty">Никого не найдено.</p>
+              </UiButton>
+            </div>
+            <div class="rec-vac-toolbar-right">
+              <label class="rec-vac-status-field">
+                <span class="visually-hidden">Статус вакансии</span>
+                <UiSelect
+                  v-model="vacStatusFilter"
+                  class="rec-vac-status-select"
+                  :options="vacStatusOptions"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div class="table-card rec-vac-table-outer">
+            <table class="data-table rec-vac-table-wide">
+            <colgroup>
+              <col span="6" />
+              <col class="rec-vac-c-status" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col">Вакансия</th>
+                <th scope="col">Регион</th>
+                <th scope="col" class="align-right">Просмотры</th>
+                <th scope="col" class="align-right">Отклики</th>
+                <th scope="col" class="align-right">В работе</th>
+                <th scope="col">Истекает</th>
+                <th scope="col" class="align-right">Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in filteredVacancies"
+                :key="row.id"
+                class="row-clickable"
+                @click="goVacancy(row)"
+              >
+                <td class="col-name">{{ row.title }}</td>
+                <td class="col-muted">{{ row.region }}</td>
+                <td class="align-right rec-vac-num">{{ row.views }}</td>
+                <td class="align-right">
+                  <span class="rec-vac-num">{{ row.responses }}</span>
+                  <span v-if="row.responsesNew" class="rec-vac-new">+{{ row.responsesNew }}</span>
+                </td>
+                <td class="align-right rec-vac-num">{{ row.inPipeline }}</td>
+                <td class="col-muted">{{ formatRecDate(row.expiresAt) }}</td>
+                <td class="align-right">
+                  <span :class="['rec-vac-status-pill', `rec-vac-status-pill--${row.status}`]">{{
+                    row.statusLabel
+                  }}</span>
+                </td>
+              </tr>
+              <tr v-if="filteredVacancies.length === 0">
+                <td colspan="7" class="rec-vac-empty">Ничего не найдено — измените поиск или фильтры.</td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
       </div>
-    </div>
+    </template>
+
+    <template v-else-if="recTab === 'candidates'">
+      <div class="rec-tab-panel" aria-label="Кандидаты">
+        <div class="card rec-vac-list-card">
+          <div class="rec-vac-toolbar" role="search" aria-label="Поиск по кандидатам">
+            <div class="rec-vac-toolbar-left">
+              <div class="rec-vac-search-wrap">
+                <UiSearchField
+                  v-model="candSearchQuery"
+                  placeholder="Имя, email, телефон, вакансия…"
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+          </div>
+          <div class="table-card rec-vac-table-outer">
+            <table class="data-table rec-vac-table-wide rec-cand-table">
+              <thead>
+                <tr>
+                  <th scope="col">Кандидат</th>
+                  <th scope="col">Вакансия</th>
+                  <th scope="col">Этап</th>
+                  <th scope="col">Статус</th>
+                  <th scope="col" class="align-right">Зарплата</th>
+                  <th scope="col">Отклик</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="row in filteredCandidates"
+                  :key="row.id"
+                  class="row-clickable"
+                  @click="goCandidate(row)"
+                >
+                  <td class="col-name">{{ row.name }}</td>
+                  <td class="col-muted">{{ row.vacancyTitle }}</td>
+                  <td>{{ stageLabelForCandidate(row) }}</td>
+                  <td>
+                    <span
+                      :class="[
+                        'rec-cand-pill',
+                        row.pipeline === 'rejected' ? 'rec-cand-pill--muted' : 'rec-cand-pill--active',
+                      ]"
+                    >{{ pipelineLabel(row.pipeline) }}</span>
+                  </td>
+                  <td class="align-right rec-vac-num">{{ formatCycleSalary(row.salary) }}</td>
+                  <td class="col-muted">{{ formatCycleDate(row.addedAt) }}</td>
+                </tr>
+                <tr v-if="filteredCandidates.length === 0">
+                  <td colspan="6" class="rec-vac-empty">Ничего не найдено — измените поиск.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -227,287 +396,159 @@ const stageFilterOptions = [
   contain: inline-size;
 }
 
+.rec-page-tabs {
+  margin-bottom: 4px;
+}
+
 .card {
   background: #fff;
   border: 1px solid #e5e5e5;
   border-radius: 10px;
 }
 
-.rec-stats {
+.rec-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
-}
-@media (max-width: 900px) {
-  .rec-stats { grid-template-columns: repeat(2, 1fr); }
-}
-
-.rec-stat {
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   min-width: 0;
 }
-.rec-stat-top {
+@media (max-width: 1100px) {
+  .rec-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .rec-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.rec-kpi {
+  padding: 14px 16px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.rec-kpi-top {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
 }
-.rec-stat-label {
-  font-size: 12px;
+.rec-kpi-label {
+  font-size: 11.5px;
   color: #999;
-  font-weight: 450;
+  font-weight: 500;
+  line-height: 1.35;
   min-width: 0;
-  overflow-wrap: anywhere;
 }
-.rec-stat-ic { color: #bbb; flex-shrink: 0; }
-.rec-stat-value {
+.rec-kpi-ic {
+  color: #bbb;
+  flex-shrink: 0;
+}
+.rec-kpi-val {
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.5px;
   color: #1a1a1a;
-  line-height: 1;
+  line-height: 1.1;
 }
-.rec-stat-value--teal { color: #2ba896; }
-.rec-stat-value--amber { color: #d97706; }
-
-.rec-funnel {
-  padding: 18px 20px 20px;
-  min-width: 0;
-  overflow: hidden;
+.rec-kpi-val--teal {
+  color: #2ba896;
 }
-.rec-funnel-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin: 0 0 14px;
+.rec-kpi-val--amber {
+  color: #d97706;
 }
-.rec-funnel-row {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
-  min-width: 0;
-}
-@media (max-width: 720px) {
-  .rec-funnel-row {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-.rec-funnel-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 8px;
-  background: #fafafa;
-  border: 1px solid #eee;
-  border-radius: 8px;
-  text-align: center;
-}
-.rec-funnel-count {
-  font-size: 20px;
-  font-weight: 700;
-  color: #1a1a1a;
-}
-.rec-funnel-label {
-  font-size: 10.5px;
+.rec-kpi-unit {
+  font-size: 13px;
   font-weight: 500;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  line-height: 1.2;
+  color: #999;
 }
 
-.rec-two-col {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 280px);
-  gap: 16px;
-  align-items: start;
-  min-width: 0;
-}
-@media (max-width: 900px) {
-  .rec-two-col { grid-template-columns: 1fr; }
-}
-
-.rec-panel {
-  padding: 0;
-  overflow: hidden;
-  min-width: 0;
-}
-.rec-panel--aside {
-  padding: 16px 18px 18px;
-}
-.rec-panel--full {
-  padding: 0;
-  overflow: hidden;
-}
-.rec-panel-head {
-  display: flex;
+.rec-kpi-delta {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 20px 0;
-  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 500;
 }
-.rec-panel-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin: 0;
+.rec-kpi-delta--ok {
+  color: #2d6a4f;
 }
-.rec-panel--aside .rec-panel-title {
-  margin-bottom: 12px;
+.rec-kpi-delta--warn {
+  color: #b45309;
 }
 
-.btn-recruit {
+.rec-kpi-note {
+  margin: 0;
+  font-size: 10.5px;
+  color: #b0b0b0;
+  line-height: 1.35;
+}
+
+.rec-tab-panel {
+  min-height: 120px;
+}
+
+.rec-vac-list-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.rec-vac-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fff;
+}
+
+.rec-vac-toolbar-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rec-vac-search-wrap {
+  width: 280px;
+  max-width: min(100%, 320px);
+  flex: 0 0 auto;
+}
+
+.rec-vac-search-wrap :deep(.ui-search-field) {
+  width: 100%;
+  max-width: 100%;
+}
+
+.rec-vac-filters-toggle-inner {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
-  font-size: 12.5px;
-  font-weight: 500;
-  font-family: inherit;
-  color: #666;
-  background: #f5f5f5;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  cursor: not-allowed;
-  opacity: 0.85;
 }
 
-.rec-toolbar {
-  padding: 12px 20px 8px;
-}
-.rec-search {
-  max-width: 100%;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-@media (min-width: 480px) {
-  .rec-search { max-width: 360px; width: auto; }
-}
-
-.rec-filter { flex-shrink: 0; }
-.rec-select {
-  min-width: 0;
-  max-width: 100%;
-  cursor: pointer;
-}
-@media (min-width: 480px) {
-  .rec-select { min-width: 160px; max-width: none; }
-}
-
-.table-wrap {
-  padding-bottom: 8px;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  overflow-x: hidden;
-}
-.data-table {
-  table-layout: fixed;
-  width: 100%;
-  max-width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.data-table thead tr { border-bottom: 1px solid #f0f0f0; }
-.data-table th {
-  padding: 10px 20px;
-  font-size: 11.5px;
-  font-weight: 500;
-  color: #aaa;
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-.data-table tbody tr {
-  border-bottom: 1px solid #f5f5f5;
-  transition: background 0.12s;
-}
-.data-table tbody tr:hover { background: #fafafa; }
-.data-table tbody tr:last-child { border-bottom: none; }
-.data-table td {
-  padding: 11px 20px;
-  color: #444;
-  vertical-align: middle;
-  overflow-wrap: anywhere;
-  word-wrap: break-word;
-}
-
-.align-right { text-align: right; }
-.col-muted { color: #888; font-size: 12.5px; }
-.td-strong { font-weight: 500; color: #1a1a1a; }
-
-.rs-pill {
-  display: inline-block;
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 6px;
-}
-.rs--open { background: #edf7f2; color: #2d6a4f; }
-.rs--paused { background: #fef9ec; color: #b45309; }
-.rs--closed { background: #f3f4f6; color: #6b7280; }
-
-.st-pill {
-  display: inline-block;
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 6px;
-}
-.st--new { background: #eef4ff; color: #3b6fd9; }
-.st--screening { background: #f3e8ff; color: #7c3aed; }
-.st--interview { background: #e0f2fe; color: #0369a1; }
-.st--offer { background: #fef3c7; color: #b45309; }
-.st--hired { background: #edf7f2; color: #2d6a4f; }
-.st--rejected { background: #fef2f2; color: #b91c1c; }
-
-.rec-interviews {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.rec-vac-toolbar-right {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.rec-int-item {
-  padding-bottom: 12px;
-  border-bottom: 1px solid #f0f0f0;
-}
-.rec-int-item:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.rec-int-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.rec-int-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #222;
-}
-.rec-int-vac {
-  font-size: 12px;
-  color: #888;
-}
-.rec-int-meta {
-  font-size: 11.5px;
-  color: #aaa;
-  margin-top: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
 }
 
-.rec-empty {
-  text-align: center;
-  color: #999;
-  font-size: 13px;
-  padding: 20px;
+.rec-vac-status-field {
+  display: block;
   margin: 0;
+  min-width: 0;
+}
+
+.rec-vac-status-select {
+  min-width: 170px;
+  max-width: 100%;
 }
 
 .visually-hidden {
@@ -520,5 +561,146 @@ const stageFilterOptions = [
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.rec-vac-table-outer {
+  border-radius: 0;
+}
+
+.rec-vac-empty {
+  text-align: center;
+  padding: 28px 20px !important;
+  color: #999;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .rec-vac-toolbar-right {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+.rec-aging {
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.rec-aging-pad {
+  padding: 16px 18px 12px;
+}
+.rec-aging-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rec-aging-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+.rec-aging-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.rec-aging-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #aaa;
+}
+
+.row-clickable {
+  cursor: pointer;
+}
+
+.rec-aging-days-cell {
+  font-weight: 600;
+  color: #c2410c;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Таблица вакансий: фиксированная ширина последнего столбца (статус) */
+.data-table.rec-vac-table-wide {
+  width: 100%;
+  min-width: 880px;
+  table-layout: fixed;
+}
+
+.rec-vac-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.rec-vac-new {
+  margin-left: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #2ba896;
+}
+
+.data-table.rec-vac-table-wide col.rec-vac-c-status {
+  width: 104px;
+}
+
+.data-table.rec-vac-table-wide th:last-child,
+.data-table.rec-vac-table-wide td:last-child {
+  padding-right: 12px;
+}
+
+.rec-vac-status-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.rec-vac-status-pill--open {
+  color: #2d6a4f;
+  background: #edf7f2;
+  border-color: #c6e9dc;
+}
+.rec-vac-status-pill--paused {
+  color: #b45309;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+.rec-vac-status-pill--closed {
+  color: #6b7280;
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+}
+
+.data-table.rec-cand-table {
+  min-width: 820px;
+}
+
+.rec-cand-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.rec-cand-pill--active {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.rec-cand-pill--muted {
+  color: #6b7280;
+  background: #f3f4f6;
+  border-color: #e5e7eb;
 }
 </style>

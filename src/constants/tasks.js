@@ -99,7 +99,7 @@ export const TASK_FILTER_ASSIGNEES = [
   { value: '', label: 'Все' },
   { value: 'zh', label: 'Зарина Хасанова' },
   { value: 'rk', label: 'Руслан Камолов' },
-  { value: 'mb', label: 'Mirzo Bedil' },
+  { value: 'mb', label: 'Мирзо Бедил' },
   { value: 'da', label: 'Дилноза Атаева' },
 ]
 
@@ -107,7 +107,7 @@ export const TASK_FILTER_ASSIGNEES = [
 export const TASK_ASSIGNEE_BY_KEY = {
   zh: { name: 'Зарина Хасанова', initials: 'ЗХ' },
   rk: { name: 'Руслан Камолов', initials: 'РК' },
-  mb: { name: 'Mirzo Bedil', initials: 'MB' },
+  mb: { name: 'Мирзо Бедил', initials: 'МБ' },
   da: { name: 'Дилноза Атаева', initials: 'ДА' },
   aa: { name: 'Azizov Aziz', initials: 'AA' },
 }
@@ -142,7 +142,7 @@ export const TASK_CATEGORY_CHIPS = [
 export const TASK_CREATE_ASSIGNEES = [
   { value: 'zh', label: 'Зарина Хасанова' },
   { value: 'rk', label: 'Руслан Камолов' },
-  { value: 'mb', label: 'Mirzo Bedil' },
+  { value: 'mb', label: 'Мирзо Бедил' },
   { value: 'da', label: 'Дилноза Атаева' },
   { value: 'aa', label: 'Azizov Aziz' },
 ]

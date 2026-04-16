@@ -16,7 +16,7 @@ const BASE = {
 
 /** Полные карточки для пользователей демо-сессии */
 export const PROFILE_PRESETS = {
-  'Mirzo Bedil': {
+  'Мирзо Бедил': {
     ...BASE,
     tabNumber: '1001',
     position: 'Ведущий специалист',
@@ -26,8 +26,8 @@ export const PROFILE_PRESETS = {
     hireDate: '01.09.2022',
     timeInCompany: '3 года 7 месяцев',
     internalPhone: '1001',
-    lastName: 'Bedil',
-    firstName: 'Mirzo',
+    lastName: 'Бедил',
+    firstName: 'Мирзо',
     gender: 'Мужской',
     birthDate: '15.03.1995',
     age: '31 год',

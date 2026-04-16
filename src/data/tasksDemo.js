@@ -93,7 +93,7 @@ export function createDemoTasks() {
       category: 'evaluation',
       categoryLabel: 'Оценка',
       assigneeKey: 'mb',
-      assignee: { name: 'Mirzo Bedil', initials: 'MB' },
+      assignee: { name: 'Мирзо Бедил', initials: 'МБ' },
       due: '2026-04-13',
       checklist: [
         { id: '5a', text: 'Самооценка', done: false },
@@ -111,7 +111,7 @@ export function createDemoTasks() {
       category: 'vacations',
       categoryLabel: 'Отпуска',
       assigneeKey: 'mb',
-      assignee: { name: 'Mirzo Bedil', initials: 'MB' },
+      assignee: { name: 'Мирзо Бедил', initials: 'МБ' },
       due: '2026-03-01',
       checklist: [{ id: '6a', text: 'Пройти осмотр', done: true }],
       comments: [{ id: 'c3', author: 'HR', text: 'Закрыто автоматически.', at: '2026-03-02T12:00:00' }],
