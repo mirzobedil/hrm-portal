@@ -1,0 +1,17 @@
+﻿node.exe : npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help
+ npmrc` for supported config options.
+строка:1 знак:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn Unknow...config options.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm error code E404
+npm error 404 Not Found - GET https://registry.npmjs.org/pdf-parse-cli - Not found
+npm error 404
+npm error 404  The requested resource 'pdf-parse-cli@*' could not be found or you do not have permission to access it.
+npm error 404
+npm error 404 Note that you can also install from a
+npm error 404 tarball, folder, http url, or git url.
+npm error A complete log of this run can be found in: C:\Users\async\AppData\Local\Temp\cursor-sandbox-cache\031fce3114
+51927629fb3f4d0cbfe9d4\npm\_logs\2026-04-16T12_46_19_104Z-debug-0.log

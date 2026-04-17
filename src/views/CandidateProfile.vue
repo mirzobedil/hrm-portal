@@ -5,7 +5,13 @@ import {
   Phone, Mail, Copy, Calendar, Briefcase, MapPin, FileText, Send,
 } from 'lucide-vue-next'
 import { UiPillTabs, UiPillTab, UiButton, UiTextarea } from '@/components/ui'
-import { formatCycleSalary } from '@/data/recruitingVacancyCycleDemo.js'
+import {
+  formatCycleSalary,
+  REC_CYCLE_CANDIDATES,
+  REC_CYCLE_STAGES,
+  recruitmentCandidatesTick,
+  getCycleCandidateRowById,
+} from '@/data/recruitingVacancyCycleDemo.js'
 import {
   getRecruitingCandidateById,
   getCandidateTimeline,
@@ -15,12 +21,78 @@ import {
   stageLabelForCandidate,
   formatCycleDate,
 } from '@/data/recruitingCandidatesDemo.js'
+import {
+  evaluateStageDrop,
+  getNextLinearStageId,
+} from '@/utils/recruitingStageTransitions.js'
+import { useRecruitingStageTransition } from '@/composables/useRecruitingStageTransition.js'
+import RecruitingStageTransitionModal from '@/components/recruiting/RecruitingStageTransitionModal.vue'
 
 const route = useRoute()
 const router = useRouter()
 
 const candId = computed(() => String(route.params.id))
-const cand = computed(() => getRecruitingCandidateById(candId.value))
+
+const cand = computed(() => {
+  recruitmentCandidatesTick.value
+  return getRecruitingCandidateById(candId.value)
+})
+
+const rowVid = computed(() => getCycleCandidateRowById(candId.value)?.vacancyId ?? '')
+
+const {
+  cycleTransitionOpen,
+  cyclePending,
+  cycleTransitionForm,
+  cycleTransitionError,
+  cycleToast,
+  cycleModalTitle,
+  stageTitle,
+  closeCycleTransition,
+  confirmCycleTransition,
+  beginStageTransitionFromProfile,
+} = useRecruitingStageTransition({
+  getPool: () => REC_CYCLE_CANDIDATES,
+  getVacancyId: () => rowVid.value,
+  rowMatches: (c) => c.vacancyId === rowVid.value,
+})
+
+function stageLabelById(id) {
+  return REC_CYCLE_STAGES.find((s) => s.id === id)?.label ?? id
+}
+
+/** Строка в пуле для кнопок (реагирует на tick). */
+const pipelineRow = computed(() => getCycleCandidateRowById(candId.value))
+
+const nextStageAction = computed(() => {
+  const row = pipelineRow.value
+  if (!row || row.stageId === 'failed') return null
+  const nextId = getNextLinearStageId(row.stageId)
+  if (!nextId) return null
+  const ev = evaluateStageDrop(row.stageId, nextId)
+  if (!ev.allowed || ev.decision !== 'forward') return null
+  return {
+    toStageId: nextId,
+    label: `Следующий этап: ${stageLabelById(nextId)}`,
+  }
+})
+
+const canRejectOnProfile = computed(() => {
+  const row = pipelineRow.value
+  if (!row || row.stageId === 'failed') return false
+  return evaluateStageDrop(row.stageId, 'failed').allowed
+})
+
+function onProfileNextStage() {
+  const n = nextStageAction.value
+  if (!n || !candId.value) return
+  beginStageTransitionFromProfile(candId.value, n.toStageId)
+}
+
+function onProfileReject() {
+  if (!candId.value) return
+  beginStageTransitionFromProfile(candId.value, 'failed')
+}
 
 function initials(name) {
   const p = (name || '').split(/\s+/).filter(Boolean)
@@ -33,6 +105,7 @@ const docs = computed(() => getCandidateDocs(candId.value))
 const pipelineDays = computed(() => (cand.value ? daysInPipeline(cand.value.addedAt) : 0))
 
 const activeTab = ref('general')
+
 const tabs = [
   { id: 'general', label: 'Общие сведения' },
   { id: 'pipeline', label: 'Воронка и интервью' },
@@ -132,7 +205,7 @@ function fmtTimelineDate(iso) {
       <div class="ep-layout">
         <div class="ep-main">
           <template v-if="activeTab === 'general'">
-            <section class="card ep-block">
+            <section class="card ep-block ep-block--pipeline">
               <h3 class="ep-block-title">Подбор</h3>
               <div class="ep-info-grid">
                 <div class="ep-info-item">
@@ -170,6 +243,32 @@ function fmtTimelineDate(iso) {
                   <span class="ep-info-label">Последний контакт</span>
                   <span class="ep-info-value">{{ cand.lastContactAt ? formatCycleDate(cand.lastContactAt) : '—' }}</span>
                 </div>
+              </div>
+              <div
+                v-if="nextStageAction || canRejectOnProfile"
+                class="ep-pipeline-actions-bar"
+              >
+                <div class="ep-pipeline-actions-main">
+                  <UiButton
+                    v-if="nextStageAction"
+                    variant="primary"
+                    size="sm"
+                    type="button"
+                    @click="onProfileNextStage"
+                  >
+                    {{ nextStageAction.label }}
+                  </UiButton>
+                </div>
+                <UiButton
+                  v-if="canRejectOnProfile"
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  class="ep-btn-reject ep-pipeline-reject"
+                  @click="onProfileReject"
+                >
+                  Отказ в найме
+                </UiButton>
               </div>
             </section>
 
@@ -334,6 +433,19 @@ function fmtTimelineDate(iso) {
           </div>
         </aside>
       </div>
+
+      <div v-if="cycleToast" class="ep-cycle-toast" role="status">{{ cycleToast }}</div>
+
+      <RecruitingStageTransitionModal
+        v-if="cycleTransitionOpen && cyclePending"
+        :title="cycleModalTitle"
+        :pending="cyclePending"
+        :form="cycleTransitionForm"
+        :error="cycleTransitionError"
+        :stage-title-fn="stageTitle"
+        @close="closeCycleTransition"
+        @confirm="confirmCycleTransition"
+      />
     </template>
   </div>
 </template>
@@ -533,6 +645,59 @@ function fmtTimelineDate(iso) {
   gap: 4px;
   min-width: 0;
 }
+
+.ep-block--pipeline .ep-block-title {
+  margin-bottom: 16px;
+}
+.ep-pipeline-actions-bar {
+  margin: 18px -20px -20px;
+  padding: 16px 20px 18px;
+  border-top: 1px solid #e8eaef;
+  border-radius: 0 0 10px 10px;
+  background: #f7f8fa;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+.ep-pipeline-actions-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.ep-pipeline-reject {
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .ep-pipeline-actions-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ep-pipeline-actions-main {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ep-pipeline-actions-main :deep(.ui-btn) {
+    width: 100%;
+    justify-content: center;
+  }
+  .ep-pipeline-reject {
+    width: 100%;
+    justify-content: center;
+  }
+}
+.ep-btn-reject {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+.ep-btn-reject:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
 .ep-info-label {
   font-size: 11.5px;
   color: #aaa;
@@ -791,5 +956,24 @@ function fmtTimelineDate(iso) {
 .ep-note-save {
   margin-top: 10px;
   align-self: flex-end;
+}
+</style>
+
+<style>
+.ep-cycle-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
 }
 </style>

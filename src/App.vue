@@ -3,7 +3,7 @@ import { ref, computed, provide, onMounted, onBeforeUnmount, nextTick } from 'vu
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import {
   PanelLeftClose, Search, Bell, Home,
-  LayoutDashboard, Palmtree, MoreHorizontal, AlignLeft,
+  LayoutDashboard, Palmtree, MoreHorizontal,
   UserCircle, CalendarCheck, Banknote,
   Users, FileBarChart2, Building2, UserCog, Settings, ListChecks, UserPlus,
   ListTodo,
@@ -12,6 +12,7 @@ import { UiIconButton, UiButton } from '@/components/ui'
 import { getRecruitingVacancyById } from '@/data/recruitingDashboardDemo.js'
 import { getRecruitingCandidateById } from '@/data/recruitingCandidatesDemo.js'
 import { resolveTaskById } from '@/composables/useTasks.js'
+import brandLogo from '@/assets/logo.svg'
 
 /** Demo: переключатель ролей в сайдбаре (в проде — из сессии) */
 const roles = [
@@ -306,9 +307,16 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-top">
-        <UiIconButton type="button" aria-label="Свернуть панель">
-          <PanelLeftClose :size="16" stroke-width="1.5" />
-        </UiIconButton>
+        <RouterLink class="sidebar-brand" to="/" title="На главную" aria-label="На главную">
+          <img
+            class="sidebar-brand-img"
+            :src="brandLogo"
+            alt=""
+            width="194"
+            height="48"
+            decoding="async"
+          />
+        </RouterLink>
       </div>
 
       <nav class="sidebar-nav">
@@ -365,7 +373,6 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
         </div>
         <div class="footer-actions">
           <UiIconButton type="button" aria-label="Ещё"><MoreHorizontal :size="14" stroke-width="1.5" /></UiIconButton>
-          <UiIconButton type="button" aria-label="Меню"><AlignLeft :size="14" stroke-width="1.5" /></UiIconButton>
         </div>
       </div>
     </aside>
@@ -374,6 +381,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
     <main class="main">
       <header class="navbar">
         <div class="navbar-left">
+          <UiIconButton type="button" aria-label="Свернуть панель">
+            <PanelLeftClose :size="16" stroke-width="1.5" />
+          </UiIconButton>
           <button class="search-btn">
             <Search :size="14" stroke-width="1.5" />
             <span>Поиск...</span>
@@ -508,8 +518,24 @@ body {
 
 .sidebar-top {
   display: flex;
+  align-items: center;
   gap: 2px;
   padding: 4px 10px 8px;
+  min-height: 34px;
+}
+
+.sidebar-brand {
+  display: block;
+  min-width: 0;
+  text-decoration: none;
+  user-select: none;
+}
+
+.sidebar-brand-img {
+  display: block;
+  height: 26px;
+  width: auto;
+  max-width: 100%;
 }
 
 .sidebar-nav {
@@ -631,7 +657,7 @@ body {
   border-bottom: 1px solid #e2e2e2;
   flex-shrink: 0;
 }
-.navbar-left  { display: flex; align-items: center; gap: 4px; }
+.navbar-left  { display: flex; align-items: center; gap: 8px; }
 .navbar-right { display: flex; align-items: center; gap: 8px; }
 
 .search-btn {

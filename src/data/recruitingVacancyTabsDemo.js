@@ -2,33 +2,6 @@
  * Минимальные демо-данные для вкладок карточки вакансии (не «Цикл»).
  */
 
-export const VACANCY_TAB_OFFERS = [
-  {
-    id: 'of1',
-    candidateName: 'Морозова Ольга',
-    amount: 55_000_000,
-    status: 'pending',
-    statusLabel: 'Ожидает ответа',
-    date: '2026-04-02',
-  },
-  {
-    id: 'of2',
-    candidateName: 'Фёдоров Игорь',
-    amount: 48_000_000,
-    status: 'approved',
-    statusLabel: 'Согласован',
-    date: '2026-04-01',
-  },
-  {
-    id: 'of3',
-    candidateName: 'Орлов Сергей',
-    amount: 42_000_000,
-    status: 'draft',
-    statusLabel: 'Черновик',
-    date: '2026-03-30',
-  },
-]
-
 export const VACANCY_TAB_DOCUMENTS = [
   { id: 'd1', name: 'Описание позиции (PDF)', date: '2026-03-15' },
   { id: 'd2', name: 'Согласование бюджета', date: '2026-03-18' },

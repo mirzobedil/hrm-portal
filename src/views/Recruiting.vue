@@ -5,7 +5,7 @@ import {
   Briefcase,
   Users,
   CalendarClock,
-  FileSignature,
+  ShieldCheck,
   Timer,
   TrendingDown,
   TrendingUp,
@@ -200,10 +200,10 @@ function goCandidate(row) {
         </div>
         <div class="card rec-kpi">
           <div class="rec-kpi-top">
-            <span class="rec-kpi-label">Ожидающие офферы</span>
-            <FileSignature :size="15" stroke-width="1.5" class="rec-kpi-ic" aria-hidden="true" />
+            <span class="rec-kpi-label">На СБ и комплаенсе</span>
+            <ShieldCheck :size="15" stroke-width="1.5" class="rec-kpi-ic" aria-hidden="true" />
           </div>
-          <div class="rec-kpi-val rec-kpi-val--amber">{{ kpis.offersPending }}</div>
+          <div class="rec-kpi-val rec-kpi-val--amber">{{ kpis.complianceQueue }}</div>
         </div>
         <div class="card rec-kpi">
           <div class="rec-kpi-top">
@@ -223,9 +223,9 @@ function goCandidate(row) {
         </div>
         <div class="card rec-kpi">
           <div class="rec-kpi-top">
-            <span class="rec-kpi-label">Кандидат → оффер (оценка)</span>
+            <span class="rec-kpi-label">До передачи в ANET (оценка)</span>
           </div>
-          <div class="rec-kpi-val">{{ kpis.offerConversionPct }}%</div>
+          <div class="rec-kpi-val">{{ kpis.anetHandoffConversionPct }}%</div>
           <p class="rec-kpi-note">Конверсия зависит от воронки и качества источников</p>
         </div>
       </div>

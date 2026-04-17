@@ -106,10 +106,10 @@ const PROFILE_EXTRA = {
 export const REC_CANDIDATE_TIMELINE = [
   { id: 'tl1', candidateId: 'cc1', at: '2026-04-10', title: 'Первичный контакт', detail: 'Уточнены ожидания по проекту и формат работы' },
   { id: 'tl2', candidateId: 'cc1', at: '2026-04-08', title: 'Отклик получен', detail: 'Источник: hh.uz' },
-  { id: 'tl3', candidateId: 'cc5', at: '2026-04-06', title: 'Интервью HR', detail: 'Запланировано тех. интервью' },
+  { id: 'tl3', candidateId: 'cc5', at: '2026-04-06', title: 'Телефонное интервью', detail: 'Запланирована встреча с руководителем' },
   { id: 'tl4', candidateId: 'cc5', at: '2026-03-24', title: 'Отклик получен', detail: 'Резюме передано заказчику' },
-  { id: 'tl5', candidateId: 'cc7', at: '2026-04-04', title: 'Техническое интервью', detail: 'Системный дизайн, 90 мин.' },
-  { id: 'tl6', candidateId: 'cc9', at: '2026-04-01', title: 'Оффер отправлен', detail: 'Ожидание ответа до 20.04' },
+  { id: 'tl5', candidateId: 'cc7', at: '2026-04-04', title: 'Тестирование', detail: 'Системный дизайн, 90 мин.' },
+  { id: 'tl6', candidateId: 'cc9', at: '2026-04-01', title: 'Передача в ANET', detail: 'Ожидание подтверждения в системе' },
   { id: 'tl7', candidateId: 'cc10', at: '2026-03-16', title: 'Отказ', detail: 'Не пришёл на собеседование' },
 ]
 

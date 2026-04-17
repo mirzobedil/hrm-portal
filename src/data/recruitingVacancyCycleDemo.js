@@ -1,37 +1,38 @@
+import { ref } from 'vue'
+
 /**
  * Демо: кандидаты и стадии воронки для вкладки «Цикл» (карточка вакансии).
+ * База по ТЗ, часть 2: … → СБ/комплаенс → ANET.
+ * В колонках цикла линейный путь: … → СБ/комплаенс → передача в ANET.
  */
 
 /** Цвета этапов воронки — таблица «Стадия» и канбан (заголовок колонки). */
 export const REC_CYCLE_STAGES = [
   { id: 'new', label: 'Новый кандидат', failed: false, color: '#2563eb' },
-  { id: 'hr', label: 'Интервью с HR', failed: false, color: '#4f46e5' },
-  {
-    id: 'tech',
-    label: 'Техническое интервью или встреча в офисе',
-    failed: false,
-    color: '#7c3aed',
-  },
-  { id: 'decision', label: 'Принятие решения', failed: false, color: '#d97706' },
-  { id: 'offer', label: 'Отправлен оффер', failed: false, color: '#059669' },
+  { id: 'phone', label: 'Телефонное интервью', failed: false, color: '#4f46e5' },
+  { id: 'manager', label: 'Интервью с руководителем', failed: false, color: '#6366f1' },
+  { id: 'director', label: 'Интервью с директором', failed: false, color: '#7c3aed' },
+  { id: 'test', label: 'Тестирование', failed: false, color: '#d97706' },
+  { id: 'compliance', label: 'СБ и комплаенс', failed: false, color: '#ea580c' },
+  { id: 'anet', label: 'Передача в ANET', failed: false, color: '#059669' },
   { id: 'failed', label: 'Наем провален', failed: true, color: '#dc2626' },
 ]
 
 /**
- * Сегменты 1–10 полосы прогресса: какому этапу соответствует цвет сегмента.
+ * Сегменты полосы прогресса: какому этапу соответствует цвет сегмента.
  * Согласовано с REC_CYCLE_STAGE_SEG_FILL (накопительный прогресс).
  */
 export const REC_CYCLE_SEGMENT_STAGE_ID = [
   'new',
   'new',
-  'new',
-  'hr',
-  'hr',
-  'tech',
-  'decision',
-  'decision',
-  'offer',
-  'offer',
+  'phone',
+  'manager',
+  'manager',
+  'director',
+  'director',
+  'test',
+  'compliance',
+  'anet',
 ]
 
 export function getStageColor(stageId) {
@@ -41,11 +42,13 @@ export function getStageColor(stageId) {
 
 /** Сколько сегментов полосы «Стадия» закрасить (1–10), не failed */
 export const REC_CYCLE_STAGE_SEG_FILL = {
-  new: 3,
-  hr: 4,
-  tech: 5,
-  decision: 6,
-  offer: 8,
+  new: 2,
+  phone: 3,
+  manager: 5,
+  director: 7,
+  test: 8,
+  compliance: 9,
+  anet: 10,
   failed: 0,
 }
 
@@ -126,7 +129,7 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'd.kozlov@mail.ru',
     phone: '+7 904 555-66-77',
     vacancyHint: 'Senior Backend (Go)',
-    stageId: 'hr',
+    stageId: 'phone',
     pipeline: 'active',
     salary: 35000000,
     addedAt: '2026-03-24',
@@ -143,7 +146,7 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'e.nikitina@mail.ru',
     phone: '+7 905 666-77-88',
     vacancyHint: 'Senior Backend (Go)',
-    stageId: 'hr',
+    stageId: 'phone',
     pipeline: 'active',
     salary: 28000000,
     addedAt: '2026-03-23',
@@ -160,13 +163,13 @@ export const REC_CYCLE_CANDIDATES = [
     email: 's.orlov@mail.ru',
     phone: '+7 906 777-88-99',
     vacancyHint: 'Senior Backend (Go)',
-    stageId: 'tech',
+    stageId: 'test',
     pipeline: 'active',
     salary: 42000000,
     addedAt: '2026-03-22',
     responseTag: null,
     tenure: '6 мес. / 9 мес.',
-    metricLabel: 'Собеседования',
+    metricLabel: 'Тесты',
     metricValue: 2,
   },
   {
@@ -177,13 +180,13 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'i.fedorov@mail.ru',
     phone: '+7 907 888-99-00',
     vacancyHint: 'Senior Backend (Go)',
-    stageId: 'decision',
+    stageId: 'compliance',
     pipeline: 'active',
     salary: 48000000,
     addedAt: '2026-03-20',
     responseTag: null,
     tenure: '8 мес. / 8 мес.',
-    metricLabel: 'Офферы',
+    metricLabel: 'СБ и комплаенс',
     metricValue: 0,
   },
   {
@@ -194,13 +197,13 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'o.morozova@mail.ru',
     phone: '+7 908 999-00-11',
     vacancyHint: 'Senior Backend (Go)',
-    stageId: 'offer',
+    stageId: 'compliance',
     pipeline: 'active',
     salary: 55000000,
     addedAt: '2026-03-18',
     responseTag: null,
     tenure: '9 мес. / 9 мес.',
-    metricLabel: 'Офферы',
+    metricLabel: 'СБ и комплаенс',
     metricValue: 1,
   },
   {
@@ -248,7 +251,7 @@ export const REC_CYCLE_CANDIDATES = [
     email: 't.rahimov@mail.ru',
     phone: '+998 90 100-01-02',
     vacancyHint: 'HR BP',
-    stageId: 'hr',
+    stageId: 'phone',
     pipeline: 'active',
     salary: 28000000,
     addedAt: '2026-04-10',
@@ -265,7 +268,7 @@ export const REC_CYCLE_CANDIDATES = [
     email: 's.kim@mail.ru',
     phone: '+998 90 100-01-03',
     vacancyHint: 'HR BP',
-    stageId: 'tech',
+    stageId: 'manager',
     pipeline: 'active',
     salary: 30000000,
     addedAt: '2026-04-08',
@@ -319,7 +322,7 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'v.li@mail.ru',
     phone: '+998 90 200-02-02',
     vacancyHint: 'DevOps Engineer',
-    stageId: 'hr',
+    stageId: 'phone',
     pipeline: 'active',
     salary: 42000000,
     addedAt: '2026-04-09',
@@ -336,13 +339,13 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'r.hasanov@mail.ru',
     phone: '+998 90 200-02-03',
     vacancyHint: 'DevOps Engineer',
-    stageId: 'offer',
+    stageId: 'anet',
     pipeline: 'active',
     salary: 45000000,
     addedAt: '2026-04-04',
     responseTag: null,
     tenure: '9 мес. / 9 мес.',
-    metricLabel: 'Офферы',
+    metricLabel: 'ANET',
     metricValue: 1,
   },
 
@@ -372,7 +375,7 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'o.mirzaev@mail.ru',
     phone: '+998 90 300-03-02',
     vacancyHint: 'Бухгалтер',
-    stageId: 'decision',
+    stageId: 'director',
     pipeline: 'active',
     salary: 19500000,
     addedAt: '2026-04-07',
@@ -408,7 +411,7 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'i.yunusov@mail.ru',
     phone: '+998 90 400-04-02',
     vacancyHint: 'Middle QA',
-    stageId: 'tech',
+    stageId: 'manager',
     pipeline: 'active',
     salary: 24000000,
     addedAt: '2026-04-10',
@@ -462,7 +465,7 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'm.abdullaeva@mail.ru',
     phone: '+998 90 500-05-02',
     vacancyHint: 'Senior Frontend Developer',
-    stageId: 'hr',
+    stageId: 'phone',
     pipeline: 'active',
     salary: 48000000,
     addedAt: '2026-04-11',
@@ -479,7 +482,7 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'd.grin@mail.ru',
     phone: '+998 90 500-05-03',
     vacancyHint: 'Senior Frontend Developer',
-    stageId: 'tech',
+    stageId: 'manager',
     pipeline: 'active',
     salary: 55000000,
     addedAt: '2026-04-09',
@@ -496,16 +499,27 @@ export const REC_CYCLE_CANDIDATES = [
     email: 'i.volkova@mail.ru',
     phone: '+998 90 500-05-04',
     vacancyHint: 'Senior Frontend Developer',
-    stageId: 'decision',
+    stageId: 'compliance',
     pipeline: 'active',
     salary: 50000000,
     addedAt: '2026-04-08',
     responseTag: null,
     tenure: '5 мес. / 7 мес.',
-    metricLabel: 'Офферы',
+    metricLabel: 'СБ / комплаенс',
     metricValue: 0,
   },
 ]
+
+/** Реактивный счётчик: мутации REC_CYCLE_CANDIDATES вне ref (профиль кандидата). */
+export const recruitmentCandidatesTick = ref(0)
+
+export function touchRecruitmentCandidates() {
+  recruitmentCandidatesTick.value += 1
+}
+
+export function getCycleCandidateRowById(id) {
+  return REC_CYCLE_CANDIDATES.find((c) => c.id === id) ?? null
+}
 
 export function formatCycleSalary(n) {
   return `${String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} сум`

@@ -6,10 +6,10 @@ export const REC_DASH_KPIS = {
   openVacancies: 12,
   activeCandidates: 47,
   interviewsWeek: 18,
-  offersPending: 6,
+  complianceQueue: 6,
   avgTimeToFillDays: 24,
   avgTimeToFillDelta: -4,
-  offerConversionPct: 11,
+  anetHandoffConversionPct: 11,
 }
 
 /**
@@ -23,15 +23,15 @@ export const REC_FUNNEL_STAGES = [
   { key: 'hr_int', label: 'Интервью HR', count: 59 },
   { key: 'resume', label: 'Первичный отбор резюме', count: 55 },
   { key: 'tech', label: 'Техническое интервью / встреча в офисе', count: 53 },
-  { key: 'offer', label: 'Оффер отправлен', count: 50 },
+  { key: 'compliance', label: 'СБ и комплаенс', count: 50 },
+  { key: 'anet', label: 'Передача в ANET', count: 45 },
   { key: 'onboard', label: 'Передача в адаптацию', count: 40 },
-  { key: 'offer_ok', label: 'Оффер принят', count: 38 },
 ]
 
 /** Причины отказа (демо) */
 export const REC_REJECTION_REASONS = [
   { label: 'Опыт не подходит', count: 3 },
-  { label: 'Не принял оффер', count: 2 },
+  { label: 'Отказ до выхода', count: 2 },
   { label: 'Подбор не завершён', count: 1 },
   { label: 'Не пришёл на интервью', count: 1 },
 ]

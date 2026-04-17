@@ -32,6 +32,8 @@ import {
   UiSelect,
   UiTextarea,
 } from '@/components/ui'
+import RecruitingStageTransitionModal from '@/components/recruiting/RecruitingStageTransitionModal.vue'
+import { useRecruitingStageTransition } from '@/composables/useRecruitingStageTransition.js'
 import {
   REC_CYCLE_STAGES,
   REC_CYCLE_CANDIDATES,
@@ -43,7 +45,6 @@ import {
 } from '@/data/recruitingVacancyCycleDemo.js'
 import { getVacancyDetailView } from '@/data/recruitingDashboardDemo.js'
 import {
-  VACANCY_TAB_OFFERS,
   VACANCY_TAB_DOCUMENTS,
   getVacancyHhIntegrationState,
   VACANCY_TAB_INTEGRATIONS_COUNT,
@@ -155,7 +156,6 @@ function downloadVacancyDocument(doc) {
 
 const vacancyTabs = computed(() => [
   { id: 'cycle', label: 'Цикл' },
-  { id: 'offer', label: 'Оффер', badge: VACANCY_TAB_OFFERS.length },
   { id: 'documents', label: 'Документы', badge: documentsTabBadge.value },
   { id: 'details', label: 'Подробности' },
   { id: 'integrations', label: 'Интеграции', badge: VACANCY_TAB_INTEGRATIONS_COUNT },
@@ -380,7 +380,8 @@ function sortCycleRows(rows) {
   return out
 }
 
-const cycleRows = computed(() => {
+/** Общие фильтры таблицы и канбана (без сортировки — порядок в массиве как в канбане). */
+function filteredCycleRowsSource() {
   let rows = candidatesForVacancy(cycleCandidates.value)
   if (cycleFilter.value === 'active') rows = rows.filter((r) => r.pipeline === 'active')
   if (cycleFilter.value === 'rejected') rows = rows.filter((r) => r.pipeline === 'rejected')
@@ -391,8 +392,13 @@ const cycleRows = computed(() => {
       return blob.includes(q)
     })
   }
-  return sortCycleRows(rows)
-})
+  return rows
+}
+
+const cycleRows = computed(() => sortCycleRows(filteredCycleRowsSource()))
+
+/** Канбан: порядок карточек = порядок в `cycleCandidates` (не по дате). */
+const cycleRowsKanban = computed(() => filteredCycleRowsSource())
 
 function stageLabel(row) {
   if (row.stageId === 'failed') return row.failedReason || 'Наем провален'
@@ -426,7 +432,143 @@ function stageHintAccentStyle(row) {
 }
 
 function candidatesInColumn(stageId) {
-  return cycleRows.value.filter((c) => c.stageId === stageId)
+  return cycleRowsKanban.value.filter((c) => c.stageId === stageId)
+}
+
+function rowMatchesCycleUi(c) {
+  if (cycleFilter.value === 'active' && c.pipeline !== 'active') return false
+  if (cycleFilter.value === 'rejected' && c.pipeline !== 'rejected') return false
+  const q = cycleSearch.value.trim().toLowerCase()
+  if (q) {
+    const blob = `${c.name} ${c.email} ${c.phone} ${c.vacancyHint ?? ''}`.toLowerCase()
+    if (!blob.includes(q)) return false
+  }
+  return true
+}
+
+function stageOrderIndex(stageId) {
+  const i = REC_CYCLE_STAGES.findIndex((s) => s.id === stageId)
+  return i === -1 ? 999 : i
+}
+
+/** Индекс вставки по положению курсора относительно середин карточек в колонке. */
+function getInsertIndexFromDrop(e, columnEl) {
+  const cards = [...columnEl.querySelectorAll('[data-candidate-id]')]
+  if (cards.length === 0) return 0
+  const y = e.clientY
+  for (let i = 0; i < cards.length; i++) {
+    const rect = cards[i].getBoundingClientRect()
+    if (y < rect.top + rect.height / 2) return i
+  }
+  return cards.length
+}
+
+function adjustInsertIndexAfterRemoval(listBefore, draggedId, insertAtDom) {
+  const oldIdx = listBefore.findIndex((c) => c.id === draggedId)
+  if (oldIdx === -1) return insertAtDom
+  return oldIdx < insertAtDom ? insertAtDom - 1 : insertAtDom
+}
+
+function applyStageToCandidate(moving, targetStageId) {
+  if (targetStageId === 'failed') {
+    moving.stageId = 'failed'
+    moving.pipeline = 'rejected'
+    if (!moving.failedReason) moving.failedReason = 'Переведено в отказ'
+  } else {
+    moving.stageId = targetStageId
+    moving.pipeline = 'active'
+    delete moving.failedReason
+  }
+}
+
+/**
+ * Вставка кандидата в `pool` так, чтобы порядок в колонке совпадал с insertAt
+ * (после удаления из старого места, stage у moving уже обновлён).
+ */
+function insertCandidateIntoPool(pool, moving, vid, targetStageId, insertAt) {
+  const siblings = pool.filter(
+    (c) => c.vacancyId === vid && rowMatchesCycleUi(c) && c.stageId === targetStageId,
+  )
+  const insertIdx = Math.min(Math.max(0, insertAt), siblings.length)
+
+  if (siblings.length === 0) {
+    let pos = pool.length
+    for (let i = 0; i < pool.length; i++) {
+      const c = pool[i]
+      if (c.vacancyId !== vid || !rowMatchesCycleUi(c)) continue
+      if (stageOrderIndex(c.stageId) > stageOrderIndex(targetStageId)) {
+        pos = i
+        break
+      }
+    }
+    if (pos === pool.length) {
+      for (let i = pool.length - 1; i >= 0; i--) {
+        if (pool[i].vacancyId === vid) {
+          pos = i + 1
+          break
+        }
+      }
+    }
+    pool.splice(pos, 0, moving)
+    return
+  }
+
+  if (insertIdx >= siblings.length) {
+    const last = siblings[siblings.length - 1]
+    const pos = pool.findIndex((c) => c.id === last.id)
+    pool.splice(pos + 1, 0, moving)
+  } else {
+    const before = siblings[insertIdx]
+    const pos = pool.findIndex((c) => c.id === before.id)
+    pool.splice(pos, 0, moving)
+  }
+}
+
+/** ── Переходы между этапами (ТЗ ч.2): общий composable с карточкой кандидата ── */
+const {
+  cycleTransitionOpen,
+  cyclePending,
+  cycleTransitionForm,
+  cycleTransitionError,
+  cycleToast,
+  cycleModalTitle,
+  stageTitle,
+  showCycleToast,
+  closeCycleTransition,
+  confirmCycleTransition,
+  beginStageTransitionFromKanban,
+} = useRecruitingStageTransition({
+  getPool: () => cycleCandidates.value,
+  getVacancyId: () => currentVacancyId.value,
+  rowMatches: rowMatchesCycleUi,
+})
+
+const DND_BODY_CLASS = 'rec-cycle-dnd-active'
+
+function moveCandidateInKanban(candidateId, targetStageId, e) {
+  const pool = cycleCandidates.value
+  const vid = currentVacancyId.value
+  const idx = pool.findIndex((x) => x.id === candidateId && x.vacancyId === vid)
+  if (idx === -1) return false
+
+  const columnEl = e.currentTarget
+  const listBeforeTarget = candidatesInColumn(targetStageId)
+  const insertAtDom = getInsertIndexFromDrop(e, columnEl)
+
+  const moving = pool[idx]
+  const oldStage = moving.stageId
+  const wasInTarget = oldStage === targetStageId
+
+  pool.splice(idx, 1)
+
+  let insertAt = insertAtDom
+  if (wasInTarget) {
+    insertAt = adjustInsertIndexAfterRemoval(listBeforeTarget, candidateId, insertAtDom)
+  }
+
+  applyStageToCandidate(moving, targetStageId)
+  insertCandidateIntoPool(pool, moving, vid, targetStageId, insertAt)
+  return true
 }
 
 function openCandidateProfile(c) {
@@ -457,58 +599,84 @@ function onKanbanCardKeydown(e, candidate) {
 }
 
 const draggingCandidateId = ref(null)
-const dropTargetStageId = ref(null)
+/** Предпросмотр слота при DnD: куда вставится карточка (как в Trello). */
+const dropPreview = ref({ stageId: null, insertIndex: 0 })
 const DND_MIME = 'application/x-rec-cycle-candidate-id'
+
+function clearDropPreview() {
+  dropPreview.value = { stageId: null, insertIndex: 0 }
+}
+
+function isKanbanDropPlaceholder(colId, insertIndex) {
+  const p = dropPreview.value
+  return (
+    draggingCandidateId.value != null &&
+    p.stageId === colId &&
+    p.insertIndex === insertIndex
+  )
+}
 
 function onCardDragStart(e, c) {
   draggingCandidateId.value = c.id
   e.dataTransfer?.setData(DND_MIME, c.id)
   e.dataTransfer?.setData('text/plain', c.id)
   e.dataTransfer.effectAllowed = 'move'
+  document.body.classList.add(DND_BODY_CLASS)
+  clearDropPreview()
 }
 
 function onCardDragEnd() {
   draggingCandidateId.value = null
-  dropTargetStageId.value = null
+  clearDropPreview()
+  document.body.classList.remove(DND_BODY_CLASS)
 }
 
 function onKanbanColumnDragOver(e, stageId) {
   e.preventDefault()
   e.dataTransfer.dropEffect = 'move'
-  dropTargetStageId.value = stageId
+  if (!draggingCandidateId.value) return
+  dropPreview.value = {
+    stageId,
+    insertIndex: getInsertIndexFromDrop(e, e.currentTarget),
+  }
 }
 
 function onKanbanColumnDragLeave(e) {
   const next = e.relatedTarget
   if (next && e.currentTarget?.contains(next)) return
-  dropTargetStageId.value = null
-}
-
-function moveCandidateToStage(candidateId, targetStageId) {
-  const list = cycleCandidates.value
-  const idx = list.findIndex((x) => x.id === candidateId)
-  if (idx === -1) return false
-  const c = list[idx]
-  if (c.stageId === targetStageId) return false
-
-  if (targetStageId === 'failed') {
-    c.stageId = 'failed'
-    c.pipeline = 'rejected'
-    if (!c.failedReason) c.failedReason = 'Переведено в отказ'
-  } else {
-    c.stageId = targetStageId
-    c.pipeline = 'active'
-    delete c.failedReason
-  }
-  return true
+  clearDropPreview()
 }
 
 function onKanbanColumnDrop(e, targetStageId) {
   e.preventDefault()
-  dropTargetStageId.value = null
+  clearDropPreview()
   const id = e.dataTransfer?.getData(DND_MIME) || e.dataTransfer?.getData('text/plain')
   if (!id) return
-  if (moveCandidateToStage(id, targetStageId)) blockKanbanCardClick.value = true
+
+  const pool = cycleCandidates.value
+  const vid = currentVacancyId.value
+  const idx = pool.findIndex((x) => x.id === id && x.vacancyId === vid)
+  if (idx === -1) return
+
+  const oldStage = pool[idx].stageId
+
+  if (oldStage === targetStageId) {
+    if (moveCandidateInKanban(id, targetStageId, e)) blockKanbanCardClick.value = true
+    return
+  }
+
+  const columnEl = e.currentTarget
+  const listBeforeTarget = candidatesInColumn(targetStageId)
+  const insertAtDom = getInsertIndexFromDrop(e, columnEl)
+  const wasInTarget = oldStage === targetStageId
+  let insertAt = insertAtDom
+  if (wasInTarget) {
+    insertAt = adjustInsertIndexAfterRemoval(listBeforeTarget, id, insertAtDom)
+  }
+
+  if (beginStageTransitionFromKanban({ candidateId: id, targetStageId, insertAt })) {
+    blockKanbanCardClick.value = true
+  }
 }
 </script>
 
@@ -527,17 +695,6 @@ function onKanbanColumnDrop(e, targetStageId) {
 
     <template v-if="vacancySectionTab === 'cycle'">
       <section class="rec-vac-cycle" aria-label="Цикл подбора">
-        <div class="rec-cycle-head">
-          <UiSwitcher v-model="cycleViewMode" variant="icon" class="rec-cycle-view-switch">
-            <UiSwitcherTab id="kanban" title="Канбан">
-              <LayoutGrid :size="15" stroke-width="1.75" />
-            </UiSwitcherTab>
-            <UiSwitcherTab id="table" title="Таблица">
-              <List :size="15" stroke-width="1.75" />
-            </UiSwitcherTab>
-          </UiSwitcher>
-        </div>
-
         <div
           class="card rec-vac-list-card"
           :class="{ 'rec-vac-list-card--kanban-full': cycleViewMode === 'kanban' }"
@@ -559,14 +716,24 @@ function onKanbanColumnDrop(e, targetStageId) {
               </UiButton>
             </div>
             <div class="rec-vac-toolbar-right">
-              <label class="rec-vac-status-field">
-                <span class="visually-hidden">Кандидаты по статусу</span>
-                <UiSelect
-                  v-model="cycleFilter"
-                  class="rec-vac-status-select"
-                  :options="cyclePipelineOptions"
-                />
-              </label>
+              <div class="rec-vac-toolbar-status-view">
+                <label class="rec-vac-status-field">
+                  <span class="visually-hidden">Кандидаты по статусу</span>
+                  <UiSelect
+                    v-model="cycleFilter"
+                    class="rec-vac-status-select"
+                    :options="cyclePipelineOptions"
+                  />
+                </label>
+                <UiSwitcher v-model="cycleViewMode" variant="icon" class="rec-cycle-view-switch">
+                  <UiSwitcherTab id="kanban" title="Канбан">
+                    <LayoutGrid :size="15" stroke-width="1.75" />
+                  </UiSwitcherTab>
+                  <UiSwitcherTab id="table" title="Таблица">
+                    <List :size="15" stroke-width="1.75" />
+                  </UiSwitcherTab>
+                </UiSwitcher>
+              </div>
             </div>
           </div>
 
@@ -631,7 +798,7 @@ function onKanbanColumnDrop(e, targetStageId) {
           <div
             class="rec-cycle-kanban-scroll rec-cycle-kanban-grid"
             :style="{
-              gridTemplateColumns: `repeat(${REC_CYCLE_STAGES.length}, minmax(260px, 280px))`,
+              gridTemplateColumns: `repeat(${REC_CYCLE_STAGES.length}, minmax(220px, 260px))`,
             }"
           >
             <div
@@ -654,76 +821,58 @@ function onKanbanColumnDrop(e, targetStageId) {
               v-for="(col, idx) in REC_CYCLE_STAGES"
               :key="'kb-b-' + col.id"
               class="rec-cycle-col-body"
-              :class="{ 'rec-cycle-col-body--drop-hover': dropTargetStageId === col.id }"
+              :class="{ 'rec-cycle-col-body--active': draggingCandidateId && dropPreview.stageId === col.id }"
               :style="{ gridColumn: idx + 1, gridRow: 2 }"
               @dragover="onKanbanColumnDragOver($event, col.id)"
               @dragleave="onKanbanColumnDragLeave"
               @drop="onKanbanColumnDrop($event, col.id)"
             >
-              <article
-                v-for="c in candidatesInColumn(col.id)"
-                :key="c.id"
-                class="rec-cycle-card rec-cycle-card--interactive"
-                :class="{ 'rec-cycle-card--dragging': draggingCandidateId === c.id }"
-                role="button"
-                tabindex="0"
-                draggable="true"
-                :aria-grabbed="draggingCandidateId === c.id"
-                :aria-label="`Кандидат ${c.name}. Перетащите в другую колонку или нажмите Enter для открытия.`"
-                @dragstart="onCardDragStart($event, c)"
-                @dragend="onCardDragEnd"
-                @click="onKanbanCardClick(c)"
-                @keydown="onKanbanCardKeydown($event, c)"
-              >
-                <div class="rec-cycle-card-top">
-                  <span class="rec-cycle-card-tenure">
-                    <CalendarClock :size="15" stroke-width="1.5" class="rec-cycle-card-tenure-ic" />
-                    {{ c.tenure }}
-                  </span>
-                  <span class="rec-cycle-avatar rec-cycle-avatar--sm">{{ c.initials }}</span>
-                </div>
-                <div class="rec-cycle-card-name">{{ c.name }}</div>
-                <div class="rec-cycle-card-row">
-                  <span class="rec-cycle-card-k">Зарплата</span>
-                  <span class="rec-cycle-card-v">{{ formatCycleSalary(c.salary) }}</span>
-                </div>
-                <div class="rec-cycle-card-row">
-                  <span class="rec-cycle-card-k">{{ c.metricLabel }}</span>
-                  <span class="rec-cycle-card-v">{{ c.metricValue }}</span>
-                </div>
-              </article>
+              <template v-for="(c, cardIdx) in candidatesInColumn(col.id)" :key="c.id">
+                <div
+                  v-if="isKanbanDropPlaceholder(col.id, cardIdx)"
+                  class="rec-cycle-drop-slot"
+                  aria-hidden="true"
+                />
+                <article
+                  class="rec-cycle-card rec-cycle-card--interactive"
+                  :class="{ 'rec-cycle-card--dragging': draggingCandidateId === c.id }"
+                  :data-candidate-id="c.id"
+                  role="button"
+                  tabindex="0"
+                  draggable="true"
+                  :aria-grabbed="draggingCandidateId === c.id"
+                  :aria-label="`Кандидат ${c.name}. Перетащите в другую колонку или нажмите Enter для открытия.`"
+                  @dragstart="onCardDragStart($event, c)"
+                  @dragend="onCardDragEnd"
+                  @click="onKanbanCardClick(c)"
+                  @keydown="onKanbanCardKeydown($event, c)"
+                >
+                  <div class="rec-cycle-card-top">
+                    <span class="rec-cycle-card-tenure">
+                      <CalendarClock :size="15" stroke-width="1.5" class="rec-cycle-card-tenure-ic" />
+                      {{ c.tenure }}
+                    </span>
+                    <span class="rec-cycle-avatar rec-cycle-avatar--sm">{{ c.initials }}</span>
+                  </div>
+                  <div class="rec-cycle-card-name">{{ c.name }}</div>
+                  <div class="rec-cycle-card-row">
+                    <span class="rec-cycle-card-k">Зарплата</span>
+                    <span class="rec-cycle-card-v">{{ formatCycleSalary(c.salary) }}</span>
+                  </div>
+                  <div class="rec-cycle-card-row">
+                    <span class="rec-cycle-card-k">{{ c.metricLabel }}</span>
+                    <span class="rec-cycle-card-v">{{ c.metricValue }}</span>
+                  </div>
+                </article>
+              </template>
+              <div
+                v-if="isKanbanDropPlaceholder(col.id, candidatesInColumn(col.id).length)"
+                class="rec-cycle-drop-slot"
+                aria-hidden="true"
+              />
             </div>
           </div>
         </div>
-        </div>
-      </section>
-    </template>
-
-    <template v-else-if="vacancySectionTab === 'offer'">
-      <section class="rec-vac-panel" aria-label="Оффер">
-        <div class="card rec-vac-panel-card">
-          <div class="table-card">
-            <table class="data-table rec-vac-mini-table">
-              <thead>
-                <tr>
-                  <th scope="col">Кандидат</th>
-                  <th scope="col" class="align-right">Сумма</th>
-                  <th scope="col">Статус</th>
-                  <th scope="col">Дата</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="o in VACANCY_TAB_OFFERS" :key="o.id">
-                  <td>{{ o.candidateName }}</td>
-                  <td class="align-right rec-cycle-mono">{{ formatCycleSalary(o.amount) }}</td>
-                  <td>
-                    <span :class="['rec-offer-pill', `rec-offer-pill--${o.status}`]">{{ o.statusLabel }}</span>
-                  </td>
-                  <td class="rec-cycle-muted">{{ formatCycleDate(o.date) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
       </section>
     </template>
@@ -1193,6 +1342,19 @@ function onKanbanColumnDrop(e, targetStageId) {
         </div>
       </section>
     </template>
+
+    <div v-if="cycleToast" class="rec-cycle-toast" role="status">{{ cycleToast }}</div>
+
+    <RecruitingStageTransitionModal
+      v-if="cycleTransitionOpen && cyclePending"
+      :title="cycleModalTitle"
+      :pending="cyclePending"
+      :form="cycleTransitionForm"
+      :error="cycleTransitionError"
+      :stage-title-fn="stageTitle"
+      @close="closeCycleTransition"
+      @confirm="confirmCycleTransition"
+    />
   </div>
 </template>
 
@@ -1233,26 +1395,6 @@ function onKanbanColumnDrop(e, targetStageId) {
 
 .rec-vac-mini-table {
   font-size: 13px;
-}
-
-.rec-offer-pill {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 6px;
-}
-.rec-offer-pill--pending {
-  color: #b45309;
-  background: #fffbeb;
-}
-.rec-offer-pill--approved {
-  color: #2d6a4f;
-  background: #edf7f2;
-}
-.rec-offer-pill--draft {
-  color: #6b7280;
-  background: #f3f4f6;
 }
 
 .rec-vac-doc-upload-row {
@@ -2026,14 +2168,6 @@ function onKanbanColumnDrop(e, targetStageId) {
   min-width: 0;
 }
 
-.rec-cycle-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
 .rec-cycle-view-switch {
   flex-shrink: 0;
 }
@@ -2098,6 +2232,14 @@ function onKanbanColumnDrop(e, targetStageId) {
   align-items: center;
   gap: 10px;
   margin-left: auto;
+}
+
+.rec-vac-toolbar-status-view {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .rec-vac-status-field {
@@ -2349,15 +2491,28 @@ function onKanbanColumnDrop(e, targetStageId) {
   min-height: 120px;
   align-self: stretch;
   border-radius: 10px;
-  transition:
-    background 0.12s ease,
-    outline 0.12s ease;
+  transition: background 0.12s ease;
 }
 
-.rec-cycle-col-body--drop-hover {
-  background: rgba(37, 99, 235, 0.07);
-  outline: 2px dashed rgba(37, 99, 235, 0.4);
-  outline-offset: -2px;
+.rec-cycle-col-body--active {
+  background: rgba(100, 100, 110, 0.07);
+}
+
+/** Слот вставки — мягкий голубой, чуть выше тонкой полоски. */
+.rec-cycle-drop-slot {
+  flex-shrink: 0;
+  height: 14px;
+  min-height: 14px;
+  margin: 4px 0 6px;
+  border-radius: 7px;
+  border: none;
+  background: linear-gradient(
+    180deg,
+    rgba(96, 165, 250, 0.42) 0%,
+    rgba(147, 197, 253, 0.28) 100%
+  );
+  box-sizing: border-box;
+  pointer-events: none;
 }
 
 .rec-cycle-card {
@@ -2369,7 +2524,7 @@ function onKanbanColumnDrop(e, targetStageId) {
 }
 
 .rec-cycle-card--interactive {
-  cursor: grab;
+  cursor: move;
   user-select: none;
   transition:
     border-color 0.15s ease,
@@ -2379,7 +2534,7 @@ function onKanbanColumnDrop(e, targetStageId) {
 }
 
 .rec-cycle-card--interactive:active {
-  cursor: grabbing;
+  cursor: move;
 }
 
 .rec-cycle-card--interactive:hover {
@@ -2395,6 +2550,12 @@ function onKanbanColumnDrop(e, targetStageId) {
 
 .rec-cycle-card--dragging {
   opacity: 0.55;
+  cursor: move !important;
+}
+
+/* Курсор «перемещение» на время HTML5 drag (как системный move). */
+:global(body.rec-cycle-dnd-active) {
+  cursor: move !important;
 }
 
 .rec-cycle-card-top {
@@ -2441,5 +2602,25 @@ function onKanbanColumnDrop(e, targetStageId) {
   color: #444;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
+}
+</style>
+
+<style>
+/* Toast канбана — вне scoped */
+.rec-cycle-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
 }
 </style>
